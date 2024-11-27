@@ -16,7 +16,12 @@ const Password = ({ onConfirm, onCancel, box, pinMode = false, options = {} }) =
 		const inputs = formRef.current.querySelectorAll('input,select');
 		inputs.forEach(input => {
 			if (input.name) {
-				returnObj[input.name] = input.value;
+				const splitName = input.name.split('.');
+				if (splitName.length > 1) {
+					if (!returnObj[splitName[0]]) returnObj[splitName[0]] = {};
+					returnObj[splitName[0]][splitName[1]] = input.value;
+				} else
+					returnObj[input.name] = input.value;
 			}
 		});
 
@@ -29,6 +34,8 @@ const Password = ({ onConfirm, onCancel, box, pinMode = false, options = {} }) =
 	console.log('options', options);
 
 	const advancedContentRef = useRef();
+
+	console.log('options', options);
 
 	return (
 		<DialogBox

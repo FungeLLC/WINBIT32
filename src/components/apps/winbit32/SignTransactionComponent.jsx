@@ -21,8 +21,13 @@ const SignTransactionComponent = ({ providerKey, windowId }) => {
 	const [isQRScannerOpen, setIsQRScannerOpen] = useState(false); // State for QR scanner visibility
 	const [signDone, setSignDone] = useIsolatedState(windowId, 'signDone', false);
 	const [isTransaction, setIsTransaction] = useIsolatedState(windowId, 'isTransaction', false);
-	const [txUrl, setTxUrl] = useIsolatedState(windowId, 'txUrl', '');
+	const [txUrls, setTxUrls] = useIsolatedState(windowId, 'txUrl', '');
 
+
+	const setTxUrl = useCallback((url) => {
+		//add to the list of urls
+		setTxUrls([...txUrls, url]);
+	}, [txUrls, setTxUrls]);
 
 	async function hashMessage(message) {
 		const msgBuffer = new TextEncoder().encode(message);  // Encode message as UTF-8
@@ -189,14 +194,15 @@ const SignTransactionComponent = ({ providerKey, windowId }) => {
 							Broadcast
 						</button>
 					)}
-					{txUrl ?
-						<button className='swap-toolbar-button' onClick={() => {
-							window.open(txUrl, '_blank');
-						}}>
-							<div className='swap-toolbar-icon' >⛓</div>
-							View TX
-						</button>
-						: ''
+					{txUrls.length && 
+						txUrls.map((txUrl, index) => {
+							<button className='swap-toolbar-button' onClick={() => {
+								window.open(txUrl, '_blank');
+							}}>
+								<div className='swap-toolbar-icon' >⛓</div>
+								View TX
+							</button>
+						})
 					}
 				</div>
 				{(error && error !== '') && (

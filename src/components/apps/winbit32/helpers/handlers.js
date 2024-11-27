@@ -5,7 +5,6 @@ import { FeeOption, SwapKitApi } from "@swapkit/sdk";
 import { ChainIdToChain } from "@swapkit/sdk";
 import { getTxnDetails, getTxnDetailsV2, getTxnUrl } from "./transaction";
 import { getTokenForProvider } from './token';
-import { re } from "mathjs";
 
 export const chooseWalletForToken = (token, wallets) => {
 	if (!token) return null;
@@ -50,8 +49,10 @@ export const handleApprove = async (
 
 	const dotWallet = wallets.find((wallet) => wallet.chain === "DOT");
 
-	if("CHAINFLIP" === route.providers[0]){
+	if("CHAINFLIP" === route.providers[0] || "CHAINFLIP_DCA" === route.providers[0]){
 		
+		setStatusText("Approve not required for Chainflip");
+		return;
 
 		const {broker, toolbox} = await chainflipBroker(dotWallet);
 		console.log("broker", broker);
@@ -70,12 +71,14 @@ export const handleApprove = async (
 //   }: RequestSwapDepositAddressParams) => {
 
 
-		const targetAddress = await broker.requestSwapDepositAddress({
+
+		const targetAddress = await skClient.chainflip.requestSwapDepositAddress({
 			route: route,
 			sellAsset: swapFrom,
 			buyAsset: swapFrom,
 			recipient: wallet.address,
-			brokerCommissionBPS: 9
+			brokerCommissionBPS: 32,
+
 		}).catch((error) => {
 			console.log("error", error);
 			setStatusText("Error getting target address " + error.message);
@@ -192,7 +195,9 @@ export const handleSwap = async (
 	streamingInterval,
 	streamingNumSwaps,
 	setReportData,
-	iniData
+	iniData,
+	license,
+
 ) => {
 	if (swapInProgress) return;
 	setSwapInProgress(true);
@@ -237,7 +242,7 @@ export const handleSwap = async (
 		return;
 	}
 
-	if(isStreamingSwap){
+	if(isStreamingSwap && route.memo){
 		const parts = route.memo.split(":");
 		const splitP3 = parts[3].split("/");
 		const newSplitP3 = splitP3[0] + '/' + streamingInterval + '/' + streamingNumSwaps;
@@ -262,10 +267,10 @@ export const handleSwap = async (
 	console.log("assetValue", assetValue, swapFrom, amount, otherBits);
 
 	let cfAddress = null;
-	if (route.providers[0] === "CHAINFLIP") {
+	if (route.providers[0] === "CHAINFLIP" || route.providers[0] === "CHAINFLIP_DCA") {
 		const dotWallet = wallets.find((wallet) => wallet.chain === "DOT");
 
-		const { broker, toolbox } = await chainflipBroker(dotWallet);
+		const { broker, toolbox } = await chainflipBroker(dotWallet || wallet);
 		console.log("broker", broker);
 		console.log("toolbox", toolbox);
 
@@ -289,17 +294,55 @@ export const handleSwap = async (
 		);
 		console.log(
 			"swapToAssetValue",
-			swapToAssetValue.toString().toUpperCase(),
-			assetValue.toString().toUpperCase()
+			swapToAssetValue.toString(),
+			assetValue.toString()
 		);
+
+		// 	export async function getDepositAddress({
+		//   buyAsset,
+		//   sellAsset,
+		//   recipient,
+		//   brokerEndpoint,
+		//   maxBoostFeeBps,
+		//   brokerCommissionBPS,
+		//   ccmParams,
+		//   chainflipSDKBroker,
+		// }: {
+		//   buyAsset: AssetValue;
+		//   sellAsset: AssetValue;
+		//   recipient: string;
+		//   brokerEndpoint: string;
+		//   maxBoostFeeBps: number;
+		//   brokerCommissionBPS?: number;
+		//   ccmParams?: DepositAddressRequest["ccmParams"];
+		//   chainflipSDKBroker?: boolean;
+		// }) {
+
+
+
 		try {
-			cfAddress = await broker.requestSwapDepositAddress({
+			cfAddress = await skClient.chainflip.getDepositAddress({
 				route: route,
 				sellAsset: assetValue,
 				buyAsset: swapToAssetValue,
 				recipient: destinationAddress,
-				brokerCommissionBPS: 9,
+				brokerCommissionBPS: license ? 16 : 32,
+				maxBoostFeeBps: 0,
+				chainflipSDKBroker: true,
+				brokerEndpoint: "https://chainflip.winbit32.com",
+				slippage: slippage,
+				numChunks: Number(streamingNumSwaps),
+				chunkIntervalBlocks: Number(streamingInterval),
+				sender: wallet.address,
 			});
+
+			if(cfAddress.error){
+				setStatusText("Error getting target address " + cfAddress.error);
+				setSwapInProgress(false);
+				setShowProgress(false);
+				return null;
+			}
+
 		} catch (error) {
 			console.log("error", error);
 			setStatusText("Error getting target address " + error.message);
@@ -365,6 +408,7 @@ export const handleSwap = async (
 		streamSwap: route.streamingSwap ? true : false,
 		feeOption: FeeOption[feeOption] || FeeOption.Average,
 		recipient: destinationAddress,
+	
 	};
 
 	//set report data with clones so stays static
@@ -373,8 +417,11 @@ export const handleSwap = async (
 		ini: iniData?.trim(),
 	});
 
-	if (route.providers[0] === "MAYACHAIN") swapParams.pluginName = "mayachain";
-	else if (route.providers[0] === "CHAINFLIP") {
+	if (route.providers[0].match(/^MAYACHAIN/))
+		 swapParams.pluginName = "mayachain";
+	else if (route.providers[0].match(/^THORCHAIN/))
+		 swapParams.pluginName = "thorchain";
+	else if (route.providers[0] === "CHAINFLIP" || route.providers[0] === "CHAINFLIP_DCA"){
 		swapParams.pluginName = "chainflip";
 		// swapParams.recipientAddress = cfAddress.depositAddress;
 		// swapParams.chainflipBrokerUrl = "http://chainflip.winbit32.com:10997";
@@ -384,16 +431,20 @@ export const handleSwap = async (
 			assetValue: assetValue,
 			from: wallet.address,
 			recipient: cfAddress.depositAddress,
-			isPDA: true
+			isPDA: true,
+			isProgramDerivedAddress: true,
+			setStatusTextMessage: setStatusText,
 		};
 		setProgress(13);
 		console.log("Sending funds:", txData, wallet);
 
 		try {
 			const txID = await wallet.transfer(txData);
+			const txExplorerUrl = getTxnUrl(txID, wallet.chain, skClient);
+			setExplorerUrl(txExplorerUrl);
 			setProgress(87);
 			const explorerUrl =
-				"https://scan.chainflip.io/channels/" + cfAddress.depositChannelId;
+				"https://scan.chainflip.io/channels/" + cfAddress.channelId;
 			console.log("Explorer URL:", explorerUrl);
 
 			//add tx info to reportData
@@ -529,7 +580,7 @@ export const handleSwap = async (
 			feeOption: swapParams.feeOption,
 			recipient: swapParams.recipient,
 			pluginName: swapParams.pluginName,
-			
+			memo: route.memo,
 		},
 		route: routeWithTransaction,
 	};
@@ -567,7 +618,7 @@ export const handleSwap = async (
 		setShowProgress(false);
 		return;
 	}else if(txDetails?.message.includes("Server Error")){
-		setStatusText("TX Started but Server Error Getting Progress: " + txDetails.message);
+		setStatusText("Process Started, Click 'View TX' to see progress");
 		setSwapInProgress(false);
 		setShowProgress(false);
 		return;

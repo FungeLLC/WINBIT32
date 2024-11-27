@@ -43,12 +43,12 @@ const SwapComponent = ({ providerKey, windowId, programData, appData, onOpenWind
 	const [swapInProgress, setSwapInProgress] = useIsolatedState(windowId, 'swapInProgress', false);
 	const [progress, setProgress] = useIsolatedState(windowId, 'progress', 0);
 	const [showProgress, setShowProgress] = useIsolatedState(windowId, 'showProgress', false);
-	const [explorerUrl, setExplorerUrl] = useIsolatedState(windowId, 'explorerUrl', '');
+	const [explorerUrls, setExplorerUrls] = useIsolatedState(windowId, 'explorerUrls', '');
 	const [txnHash, setTxnHash] = useIsolatedState(windowId, 'txnHash', '');
 	const [txnStatus, setTxnStatus] = useIsolatedState(windowId, 'txnStatus', '');
 	const currentTxnStatus = useRef(txnStatus);
 	const [statusText, setStatusText] = useIsolatedState(windowId, 'statusText', '');
-	const [quoteStatus, setQuoteStatus] = useIsolatedState(windowId, 'quoteStatus', (license ? '0.16% Affiliate fee' : 'Aff. fee 0.32% (0.16% for synths)'));
+	const [quoteStatus, setQuoteStatus] = useIsolatedState(windowId, 'quoteStatus', (license ? '0.16% Affiliate fee' : 'Aff. fee 0.32% (0.16% for Licence holders)'));
 	//const [quoteId, setQuoteId] = useIsolatedState(windowId, 'quoteId', '');
 	const [maxAmount, setMaxAmount] = useIsolatedState(windowId, 'maxAmount', '0');
 	const [txnTimer, setTxnTimer] = useIsolatedState(windowId, 'txnTimer', null);
@@ -72,6 +72,16 @@ const SwapComponent = ({ providerKey, windowId, programData, appData, onOpenWind
 		setCurrentTokenSetter(() => setter);
 		setIsTokenDialogOpen(toFrom || true);
 	};
+
+	const setExplorerUrl = useCallback((url) => {
+		if(url === ''){
+			setExplorerUrls([]);
+			return;
+		}
+		//add to urls
+		setExplorerUrls([...explorerUrls, url]);
+
+	}, [explorerUrls, setExplorerUrls]);
 
 
 	const secsToDisplay = useCallback((secs) => {
@@ -109,7 +119,8 @@ const SwapComponent = ({ providerKey, windowId, programData, appData, onOpenWind
 			(txnStatus === '') ? setReportData : () => { },
 			iniData,
 			thorAffiliate, mayaAffiliate,
-			setThorAffiliate, setMayaAffiliate
+			setThorAffiliate, setMayaAffiliate,
+			streamingNumSwaps, streamingInterval
 		);
 
 
@@ -128,7 +139,7 @@ const SwapComponent = ({ providerKey, windowId, programData, appData, onOpenWind
 
 			const route = (routes && routes.length !== 0 && selectedRoute && selectedRoute !== 'optimal' && selectedRoute !== -1) ? selectedRoute : 'optimal';
 
-			console.log('Selected route:', route, selectedRoute, routes);
+			//console.log('Selected route:', route, selectedRoute, routes);
 
 			let data = `token_from=${swapFrom?.identifier || ''}
 token_to=${swapTo?.identifier || ''}
@@ -202,7 +213,7 @@ swap_count=${streamingNumSwaps}
 			clearTimeout(timer);
 			// console.log("Clearing timer");
 		};
-	}, [swapFrom, swapTo, amount, destinationAddress, slippage, doGetQuotes, mayaAffiliate, thorAffiliate]);
+	}, [swapFrom, swapTo, amount, destinationAddress, slippage, mayaAffiliate, thorAffiliate]);
 
 	useEffect(() => {
 		if (txnHash !== '') checkTxnStatus(txnHash, txnHash + '', 0, swapInProgress, txnStatus, setStatusText, setSwapInProgress, setShowProgress, setProgress, setTxnStatus, setTxnTimer, txnTimerRef);
@@ -307,7 +318,7 @@ swap_count=${streamingNumSwaps}
 
 
 	useEffect(() => {
-		if (hashPath && hashPath.length > 0 && tokens && tokens.length > 0) {
+		if (hashPath && hashPath.length > 0 && tokens && tokens.length > 0 && !metadata.swapFrom && !metadata.swapTo) {
 			setTextareaActive(true);
 
 			const parts = hashPath[0].split('&');
@@ -469,7 +480,13 @@ swap_count=${streamingNumSwaps}
 					selectedRoute,
 					license,
 					false,
-					''
+					'',
+					'be',
+					'be',
+					setThorAffiliate,
+					setMayaAffiliate,
+					streamingNumSwaps,
+					streamingInterval
 				);
 
 				setProgress(13 + (i * 7));
@@ -553,6 +570,18 @@ swap_count=${streamingNumSwaps}
 			const r = routes.find(route => selectedRoute === route.providers.join(', ') || (selectedRoute === 'optimal' && route.optimal === true));
 
 			if (r) {
+				//if chainflip set streaming
+				if (r.providers.includes('CHAINFLIP_DCA')) {
+					console.log('Chainflip route selected');
+					setIsStreamingSwap(true);
+					if (!manualStreamingSet) {
+						setStreamingInterval(r.cfQuote?.dcaParams?.chunkIntervalBlocks || 10);
+						setStreamingNumSwaps(r.cfQuote?.dcaParams?.numberOfChunks || 10);
+					}
+					return;
+				}
+
+
 				const parts = r.memo?.split(":");
 
 				if (parts && parts.length > 3) {
@@ -603,7 +632,9 @@ swap_count=${streamingNumSwaps}
 					streamingInterval,
 					streamingNumSwaps,
 					setReportData,
-					iniData
+					iniData,
+					license,
+
 				)}>
 					<div className='swap-toolbar-icon'>🔄</div>
 					Execute
@@ -634,6 +665,7 @@ swap_count=${streamingNumSwaps}
 					setSwapInProgress(false);
 					setTxnHash('');
 					setTxnStatus('');
+					setStatusText("");
 					doGetQuotes(true);
 				}}>
 					<div className='swap-toolbar-icon'>❝</div>
@@ -662,15 +694,17 @@ swap_count=${streamingNumSwaps}
 				}
 
 
-				{explorerUrl ?
-					<button className='swap-toolbar-button' onClick={() => {
-						window.open(explorerUrl, '_blank');
-					}}>
-						<div className='swap-toolbar-icon' >⛓</div>
-						View TX
-					</button>
-					: ''
+				{explorerUrls.length > 0 &&
+					explorerUrls.map((explorerUrl, index) => (
+						<button className='swap-toolbar-button' onClick={() => {
+							window.open(explorerUrl, '_blank');
+						}}>
+							<div className='swap-toolbar-icon' >⛓</div>
+							View TX
+						</button>
+					))
 				}
+
 				{reportData && reportData.ini &&
 					<button className='swap-toolbar-button' onClick={() => {
 						generateSwapReport(reportData, onOpenWindow);
@@ -692,7 +726,7 @@ swap_count=${streamingNumSwaps}
 
 			<div style={{ width: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }} className={'swap-component ' + (swapInProgress ? 'swap-in-progress' : '')}>
 
-				<div style={{ display: (swapInProgress || explorerUrl ? 'flex' : 'none') }} className="swap-progress-container">
+				<div style={{ display: (swapInProgress || explorerUrls.length  ? 'flex' : 'none') }} className="swap-progress-container">
 					{swapInProgress ? <div>
 						<div className="swap-progress" onClick={() => {
 							setTxnStatus((prev) => {
@@ -845,7 +879,8 @@ swap_count=${streamingNumSwaps}
 									<span>Information:</span>
 									<span>
 										<a href="https://docs.mayaprotocol.com/mayachain-dev-docs/introduction/swapping-guide/streaming-swaps" target="_blank">Maya</a> -
-										<a href="https://dev.thorchain.org/swap-guide/streaming-swaps.html" target="_blank" >Thorchain</a>
+										<a href="https://dev.thorchain.org/swap-guide/streaming-swaps.html" target="_blank" >Thorchain</a> - 
+										<a href="https://docs.chainflip.io/swapping/integrations/swapping-basics#dollar-cost-average-dca-improving-price" target="_blank" >Chainflip</a>
 									</span>
 								</div>
 							</div>

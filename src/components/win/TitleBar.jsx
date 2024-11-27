@@ -123,8 +123,8 @@ const TitleBar = ({
 	}, [shareOptions, shareProgOptions]);
 
 	const siteName = window.location.hostname.includes('winbit')? 'https://WINBIT32.COM': window.location.origin;
-	const shareURL = siteName + '#' + shareHash;
-	const embedURL = siteName + '#~embedMode=true/' + shareHash;
+	const shareURL = siteName + '/#' + shareHash;
+	const embedURL = siteName + '/#~embedMode=true/' + shareHash;
 	// console.log(shareOptions);
 	const embedCode = `<iframe src="${embedURL}" width="465" height="800" style="border: none;" allow="clipboard-write, camera"></iframe>`;
 
@@ -156,9 +156,8 @@ const TitleBar = ({
 
 
 				{showMinMax && (
-					<div className='maxmin'>
-
-						{embedable && <div
+					<div className='maxmin' >
+						{embedable && <>{!embedMode ? <div style={{float:'right'}}>Share →</div> : ''}<div
 							className="button embed"
 							onClick={() => {
 								if (embedMode) {
@@ -171,7 +170,7 @@ const TitleBar = ({
 							}
 						>
 							{!embedMode ? '⛓' : '⧉'}
-						</div>}
+						</div></>}
 						{(!embedable || !embedMode) &&
 							<>
 								{license ? //Windows 95 style titlebar buttons
@@ -227,7 +226,7 @@ const TitleBar = ({
 				<DialogBox
 					title="Share Options"
 					modal={true}
-					icon="info"
+					icon=""
 					buttons={[{ label: 'Close', onClick: () => { setShowDialog(false) } }]}
 					onClose={() => { setShowDialog(false) }}
 					showMinMax={false}

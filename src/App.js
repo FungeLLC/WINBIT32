@@ -33,6 +33,7 @@ const App = () => {
 	const [appData, setAppData] = useState({});
 	const hashPathRef = useRef(null);
 
+	console.log('window', window);
 
 					// }
 

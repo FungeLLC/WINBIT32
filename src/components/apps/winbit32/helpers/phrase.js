@@ -1,6 +1,15 @@
 import { wordlists } from "bip39";
 import { createHash } from "crypto-browserify";
 
+export function phraseToParts(phrase) {
+	const parts = phrase.trim().split(/\s+/g);
+	//if last part is a number
+	const index = !isNaN(parts[parts.length - 1]) ? parts.pop() : 0;
+	const words = parts.join(' ');
+
+	return { words, index };
+}
+
 
 export function isValidMnemonic(mnemonic) {
 	// Split the mnemonic into individual words

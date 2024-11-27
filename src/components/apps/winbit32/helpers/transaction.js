@@ -1,8 +1,6 @@
 import { RequestClient } from "@swapkit/helpers";
 import { ChainToExplorerUrl, Chain } from "@swapkit/sdk";
 import bigInt from "big-integer";
-import { e } from "mathjs";
-import { exitCode } from "process";
 
 const baseUrlV1 = "https://api.thorswap.net";
 
@@ -191,7 +189,18 @@ export const getTxnUrl = (txHash, chain, skClient) => {
 		if(txHash === null){
 			return "";
 		}
-		return skClient.getExplorerTxUrl({ chain, txHash });
+		switch (chain) {
+			case Chain.THORChain:
+			case Chain.Maya:
+			case Chain.Bitcoin:
+			case Chain.Ethereum:
+				return `https://www.xscanner.org/tx/${txHash}`;
+
+			case Chain.Solana:
+				return 'https://solscan.io/tx/' + txHash;
+			default:
+				return skClient.getExplorerTxUrl({ chain, txHash });
+		}
 	} catch (error) {
 		console.log("error", error, txHash, chain, skClient);
 		if (chain === "XRD" || chain === 'radix-mainnet') {

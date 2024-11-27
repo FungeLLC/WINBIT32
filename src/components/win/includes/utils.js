@@ -3,6 +3,7 @@ import { QRCodeSVG } from 'qrcode.react';
 
 
 export const copyToClipboard = (text) => {
+	console.log("copyToClipboard", text);
 	navigator.clipboard.writeText(text).then(() => {
 		//put conformatoin after element
 		//'Address copied to clipboard!';

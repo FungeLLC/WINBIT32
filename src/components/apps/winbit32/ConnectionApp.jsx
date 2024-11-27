@@ -120,6 +120,10 @@ function ConnectionApp({ windowId, providerKey, phrase, setPhrase, connectionSta
 
 								setPhrase(e.target.value.replace(/[^a-zA-Z0-9 ]/g, ' ').replace(/  +/g, ' '));
 
+							}else if(walletNames.includes(t.trim().split(' ')[0])){
+
+								setPhrase(t);
+
 							}else{
 								//replace everything except letters and spaces, except allow a number, only on the end
 								setPhrase(e.target.value

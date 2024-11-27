@@ -1,5 +1,5 @@
 //https://mayanode.mayachain.info/mayachain
-const mayanodeBaseUrl = "https://mayanode.mayachain.info/mayachain";
+const mayanodeBaseUrl = "https://tendermint.mayachain.info/mayachain";
 
 // export function getInboundAddresses(params?: ThornodeEndpointParams) {
 //   return RequestClient.get<InboundAddressesItem[]>(`${baseUrl(params)}/inbound_addresses`);

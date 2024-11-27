@@ -9,9 +9,10 @@ import { useWindowSKClient } from '../../contexts/SKClientProviderManager';
 import { Chain, ChainToChainId } from '@swapkit/sdk';
 import { QRCodeSVG } from 'qrcode.react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { isValidMnemonic } from './helpers/phrase';
+import { isValidMnemonic, phraseToParts } from './helpers/phrase';
 import { processKeyPhrase, setupFileInput, triggerFileInput } from '../sectools/includes/KeyStoreFunctions';
 import { processSKKeyPhrase, setupSKFileInput, triggerSKFileInput } from './includes/secureKeystoreFunctions';
+import { createHash } from "crypto-browserify";
 
 import { createKeyring } from '@swapkit/toolbox-substrate';
 import {  networks } from 'bitcoinjs-lib';
@@ -19,6 +20,7 @@ import { ECPairFactory, } from 'ecpair';
 import { fetchMNFTsForAccount } from './mnft/mnftfuncs';
 import { walletNames } from '../../win/includes/constants';
 import DialogBox from '../../win/DialogBox';
+import { decodePrivateKey } from './helpers/privateKey';
 
 
 const Winbit32 = ({ onMenuAction, windowA, windowId, windowName, setStateAndSave, handleStateChange, metadata, hashPath, sendUpHash, appData, handleOpenArray, onOpenWindow }) => {
@@ -172,10 +174,13 @@ const Winbit32 = ({ onMenuAction, windowA, windowId, windowName, setStateAndSave
 
 	const checkValidPhrase = useCallback(async (chkPhrase) => {
 		let words = chkPhrase.trim().split(' ');
-		if(words.length > 0 && walletNames.includes(words[0].toUpperCase().trim()))
+		const firstWord = words[0].toUpperCase().trim();
+		const pk = firstWord === 'PK';
+		if(words.length > 0 && walletNames.includes(firstWord) && !pk){
 				 return true;
+		}
 			//if not private key
-		if(words.length !== 1) {
+		if(words.length !== 1 && !pk) {
 			//if last one is a number, remove it
 			let index = 0;
 			if (!isNaN(words[words.length - 1])) {
@@ -204,92 +209,39 @@ const Winbit32 = ({ onMenuAction, windowA, windowId, windowName, setStateAndSave
 				return false;
 			}
 		}else{
-			//chkPhrase is actually a private key
+			if (pk) {
+				// console.log('Private
+				console.log('Checking private key', chkPhrase, words);
+				chkPhrase = words[1].split(':').pop().trim();
+			}
+
 			const isValid = chkPhrase.match(/^[0-9a-zA-Z]+$/);
 			if (!isValid) {
 				console.log('Invalid private key');
 				return false;
 			}
-			try{
-				//We don't know what format private key is in so need to try different ones
+			try {
 				const chkPrivateKey = chkPhrase.trim();
-				let isValid = false;
-				let phrase = chkPhrase;
-				let chkPrivateKeyBuffer;
-				//try decoding chkPrivateKey as HEX for EVM
-				chkPrivateKeyBuffer = Buffer.from(chkPrivateKey, 'hex');
-				console.log('Trying as a private key for EVM', chkPrivateKeyBuffer, chkPrivateKeyBuffer.length);
-				if (chkPrivateKeyBuffer.length === 32 || chkPrivateKeyBuffer.length === 16 || chkPrivateKeyBuffer.length === 64) {
-					//convert to uint8array
-					const entropy = new Uint8Array(chkPrivateKeyBuffer);
-					try{
-						phrase = entropyToMnemonic(entropy, wordlist);
-					
-					if(phrase){
-						console.log('Valid private key for EVM');
-						isValid = true;
+				const result = decodePrivateKey(chkPrivateKey);
 
-						}else{
-							console.log('Invalid private key for EVM');
-						}
-					} catch (e) {
-						console.log('Invalid private key for EVM', e, chkPhrase);
-					}
-				}
-				//Try decoding as a private key for BTC
-				if (!isValid) {
-					console.log('Trying as a private key for BTC');
-					try {
-						const tinysecp = require('@bitcoinerlab/secp256k1');
-						const ECPair = ECPairFactory(tinysecp);
-						//it likely is not hex but a string
-						chkPrivateKeyBuffer = Buffer.from(chkPrivateKey, 'hex');
-						if (chkPrivateKeyBuffer.length === 0) {
-							chkPrivateKeyBuffer = Buffer.from(chkPrivateKey, 'utf8');
-							//compress from 52 to 32
-							if (chkPrivateKeyBuffer.length === 52) {
-								chkPrivateKeyBuffer = Buffer.from(chkPrivateKeyBuffer.toString('base64'), 'base64');
-							}
-						}
-						const keyPair = ECPair.fromPrivateKey(chkPrivateKeyBuffer, { network: 	networks.bitcoin });
-						//get phrase
-						const phraseFromWIF = keyPair.toWIF();
-						if(phraseFromWIF){
-							phrase = phraseFromWIF;
-							console.log('Valid private key for BTC');
-						}
-
-						isValid = true;
-					} catch (e) {
-						console.log('Invalid private key for BTC', e);
-
-					}
-				}
-
-
-				//Try decoding as a private key for ETH
-
-				//Try decoding as a private key for XRD
-
-				//Try decoding as a private key for DOT
-
-				if(!isValid){
+				if (!result.isValid) {
 					console.log('Invalid private key');
 					return false;
 				}
 
+				// If valid, set the phrase and return
+				setPhrase(result.phrase);
 
-				
-				// console.log('phrase', phrase);
-				setPhrase(phrase);
-				return 2;
-			}catch(e){
+				return result.phrase.startsWith('PK')? true:2;
+			} catch (e) {
 				console.log('Invalid private key', chkPhrase, e);
 				return false;
 			}
 		}
 		setPhrase(chkPhrase);
 		return true;
+
+
 	}, [currentPhraseRef]);
 
 	const addSingleWallet = useCallback(async (wallet, chain, phrase) => {
@@ -332,8 +284,11 @@ const Winbit32 = ({ onMenuAction, windowA, windowId, windowName, setStateAndSave
 		}
 		// export const createKeyring = async (phrase: string, networkPrefix: number) => {
 		if (wallet.createKeyring) {
-			wallet.keyRing = await wallet.createKeyring(phrase, wallet.network.prefix);
-			wallet.cfKeyRing = await createKeyring(phrase, 2112);
+			const { words } = phraseToParts(phrase);
+			wallet.keyRing = await wallet.createKeyring(words, wallet.network.prefix);
+			wallet.cfKeyRing = await createKeyring(words, 2112);
+		}else if(wallet.createKeysForPath){
+
 		}
 		//console.log('Connect Result', wallet);
 
@@ -444,7 +399,7 @@ const Winbit32 = ({ onMenuAction, windowA, windowId, windowName, setStateAndSave
 						}
 					}
 				);
-				if (promises === false || promises.length === 0) {
+				if (promises === false || promises?.length === 0) {
 					throw new Error('Failed to connect');
 				}
 						
@@ -527,7 +482,8 @@ const Winbit32 = ({ onMenuAction, windowA, windowId, windowName, setStateAndSave
 	}, [phrase, connectedPhrase, currentPhraseRef, setPhraseSaved]);
 
 	const walletMenu = useMemo(() => [
-		{ label: 'XDEFI', action: 'xdefi' },
+		{ label: 'CTRL', action: 'xdefi' },
+		{ label: 'Phantom', action: 'phantom' },
 		{ label: 'WalletConnect (EVM Only)', action: 'walletconnect' },
 		{ label: 'Phrase', action: 'phrase' },
 		{ label: 'Read 2D ("QR") Barcode...', action: 'readQR' },
@@ -710,6 +666,10 @@ const Winbit32 = ({ onMenuAction, windowA, windowId, windowName, setStateAndSave
 				} else {
 					console.log('No winbittss function defined');
 				}
+				break;
+			case 'phantom':
+				setPhrase('PHANTOM');
+				setLockMode(true);
 				break;
 			case 'xdefi':
 				setPhrase('XDEFI');

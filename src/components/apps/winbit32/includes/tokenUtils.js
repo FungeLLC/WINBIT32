@@ -45,8 +45,11 @@ export const fetchTokensByCategory = async (category) => {
 	);
 	const data = await response.json();
 
-	console.log("Tokens by category:", data);
-
+	if (!data || data.length === 0) {
+		console.error("Error fetching tokens by category:", data);
+		return [];
+	}
+	
 	return data.map((token) => ({
 		identifier: convertToIdentFormat(
 			token.symbol,
@@ -98,6 +101,13 @@ export 	const fetchTokenPrices = async (swapFrom, swapTo) => {
 		});
 
 		const data = await response.json();
+
+		if (!data || data.length < 2) {
+			console.error("Error fetching token prices:", data);
+			return { fromPrice: 0, toPrice: 0 };
+		}
+
+
 		const fromPrice =
 			data.find((item) => item.identifier === swapFrom.identifier)?.price_usd ||
 			0;

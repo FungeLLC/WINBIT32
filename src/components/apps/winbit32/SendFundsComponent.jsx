@@ -143,15 +143,16 @@ const SendFundsComponent = ({ providerKey, windowId, onOpenWindow, metadata, has
 
 			}else{
 				txData = {
-				assetValue: assetValue,
-				from: sendingWallet.address,
-				feeOptionKey: FeeOption.Average,
-				memo,
-				recipient: recipientAddress,
+					assetValue: assetValue,
+					from: sendingWallet.address,
+					feeOptionKey: FeeOption.Average,
+					memo,
+					recipient: recipientAddress,
+					setStatusTextMessage: setError,
 				};
 
 				if(sendingWallet.chain === 'SOL'){
-					txData.isPDA = true;
+					txData.isProgramDerivedAddress = true;
 				}
 
 			}
@@ -431,7 +432,7 @@ memo=${memo}
 						<div className="field-group token-select-group">
 							<div className='token-select'>
 
-								<button onClick={() => !sendInProgress && openTokenDialog()} className='select-button' style={{ minWidth: '130px', minHeight: '75px' }}>
+								<button onClick={() => { setSendInProgress(false); openTokenDialog();}} className='select-button' style={{ minWidth: '130px', minHeight: '75px' }}>
 									{selectedToken ? (
 										<span className='token'>
 											<img src={selectedToken.logoURI} alt={selectedToken.name} style={{ width: '20px', height: '20px', 'marginRight': '5px', marginLeft: '5px' }} />

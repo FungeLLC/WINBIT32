@@ -146,6 +146,9 @@ const WindowBorder = React.memo(({
 
 							appData={appData}
 							isActiveWindow={isActiveWindow}
+							embedable={embedable}
+							embeded={embedMode && inContainer}
+							metadata={metadata}
 						>
 							{children} {/* Additional content */}
 						</Window>

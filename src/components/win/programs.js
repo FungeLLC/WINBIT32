@@ -23,6 +23,8 @@ import Tss from "../apps/winbit32/Tss";
 import License from "../apps/winbit32/License";
 import PoolComponent from "../apps/winbit32/PoolComponent";
 import BankComponent from "../apps/winbit32/BankComponent/BankComponent";
+import JupiterSwapComponent from "../apps/winbit32/solswap/JupiterSwapComponent";
+import VTools from "../apps/sectools/vtools/VTools";
 
 
 export const getPrograms = () => {
@@ -48,7 +50,14 @@ export const getPrograms = () => {
 			minimized: false,
 			maximized: false,
 			component: Notepad,
-			initialPosition: { x: 10, y: 10, width:720, height:480, smWidth: 380, smHeight: 300 },
+			initialPosition: {
+				x: 10,
+				y: 10,
+				width: 720,
+				height: 480,
+				smWidth: 380,
+				smHeight: 300,
+			},
 		},
 		{
 			progID: 2,
@@ -131,6 +140,22 @@ export const getPrograms = () => {
 						height: 650,
 						smHeight: 350,
 					},
+				},
+				{
+					progID: 1,
+					title: "VTools",
+					icon: "🔧",
+					progName: "vtools.exe",
+					component: VTools,
+					defaultOpen: false,
+					initialPosition: {
+						x: "auto",
+						y: 0,
+						width: 375,
+						height: 650,
+						smHeight: 350,
+					},
+
 				},
 				{
 					progID: 2,
@@ -265,7 +290,14 @@ export const getPrograms = () => {
 				// 		},
 				// 	],
 				// },
-
+				// {
+				// 	progID: 40,
+				// 	title: "SolSwap",
+				// 	icon: "📇",
+				// 	progName: "solswap.exe", // Added name for "Paintbrush"
+				// 	component: JupiterSwapComponent,
+				// 	maximized: true,
+				// },
 				{
 					progID: 4,
 					title: "mayaNFT",

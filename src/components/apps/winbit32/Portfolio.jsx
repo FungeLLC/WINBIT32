@@ -9,6 +9,7 @@ import { getExplorerAddressUrl, formatNumber } from './helpers/transaction';
 import { fetchMultipleTokenPrices } from './includes/tokenUtils';
 import { useIsolatedState } from '../../win/includes/customHooks';
 import { copyToClipboard } from '../../win/includes/utils';
+import { DerivationPath } from '@swapkit/sdk';
 
 
 
@@ -166,6 +167,7 @@ const Portfolio = ({ providerKey, handleOpenArray, onOpenWindow, windowId }) => 
 			chain: wallet.chain, // [0] is used to get the chain of the first token in the wallet. All tokens in the wallet are assumed to be of the same chain
 			symbol: wallet.balance?.find(b => b.isGasAsset)?.symbol || wallet.balance[0]?.symbol,
 			address: wallet.address,
+			derivationPath: wallet.derivationPath,
 			ticker: wallet.balance?.find(b => b.isGasAsset)?.ticker || wallet.balance[0]?.ticker,
 			balance: wallet.balance.find(b => b.isGasAsset)?.bigIntValue ? Number(wallet.balance.find(b => b.isGasAsset).bigIntValue) / Number(wallet.balance.find(b => b.isGasAsset).decimalMultiplier) : Number(wallet.balance[0].bigIntValue) / Number(wallet.balance[0].decimalMultiplier),
 			link: getExplorerAddressUrl(wallet.chain, wallet.address).replace('https://dashboard.radixdlt.com/address/', 'https://dashboard.radixdlt.com/account/'),
@@ -177,6 +179,7 @@ const Portfolio = ({ providerKey, handleOpenArray, onOpenWindow, windowId }) => 
 				balance: Number(token.bigIntValue) / Number(token.decimalMultiplier),
 				totalUSD: Number(token.bigIntValue) / Number(token.decimalMultiplier) * usdPrices.find(price => price.identifier.toLowerCase() === identifierFromBalance(token).toLowerCase())?.priceUsd, 
 				priceUSD: usdPrices.find(price => price.identifier.toLowerCase() === identifierFromBalance(token).toLowerCase())?.priceUsd,
+				address: token.address,
 				fullToken: token
 			})) : []
 		}));
@@ -223,13 +226,14 @@ const Portfolio = ({ providerKey, handleOpenArray, onOpenWindow, windowId }) => 
 
 	const ExpandedComponent = ({ data }) => (
 		<div style={{textAlign: 'center', display:'flex', flexDirection: 'column', 'alignItems':'center'}}>
-			<h2>{data.chain}</h2>
+			<h2>{data.chain} {data.derivationPath}</h2>
 			<QRCodeSVG value={data.address} />
 			<div style={{ marginBottom: '10px', marginTop: '10px', maxWidth: '400px' }}><strong>Address:</strong>  <div style={{ fontSize: '80%' }} className='selectable'>{data.address}</div></div>
 			<table style={{ margin: 'auto', textAlign: 'left', userSelect: 'text' }}>
 			{data.tokens.map((token, index) => (
 				<tr key={index} style={{ marginBottom: '10px', padding: '10px', borderBottom: '1px solid grey' }}>
 					<td title={token.symbol} style={{maxWidth:'300px', overflow:'hidden', 'whiteSpace': 'nowrap', 'textOverflow': 'ellipsis'}}>	 {token.ticker}</td>
+					<td style={{ cursor: 'pointer' }} onClick={() => copyToClipboard(token.address, this)} title={"Copy this token's address: " + token.address}>📋</td>
 					<td style={{ maxWidth: '300px', overflow: 'hidden', 'whiteSpace': 'nowrap', 'textOverflow': 'ellipsis' }}>{formatNumber(token.balance)}</td>
 					<td style={{ maxWidth: '100px', overflow: 'hidden', 'whiteSpace': 'nowrap', 'textOverflow': 'ellipsis' }}>{token.totalUSD ? '$' + token.totalUSD.toFixed(2) : 'N/A'}</td>
 					<td onClick={() => handleOpenWindow('send.exe', { selectedToken: getTokenfromBalanceToken(token.fullToken) })} style={{ cursor: 'pointer' }} title="Send this token to someone else">✉️</td>

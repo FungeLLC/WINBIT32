@@ -7,12 +7,17 @@ import React, {
 	useCallback,
 } from "react";
 import { ChainflipBroker } from "@swapkit/plugin-chainflip";
-import { ChainflipToolbox } from "@swapkit/toolbox-substrate";
-import { createSwapKit, Chain, WalletOption, AssetValue } from "@swapkit/sdk";
+import { ChainflipToolbox, isKeyringPair } from "@swapkit/toolbox-substrate";
+import { createSwapKit, Chain,  SubstrateChains,
+  EVMChains, 
+  UTXOChains,
+  CosmosChains } from "@swapkit/sdk";
 import { walletconnectWallet } from "@swapkit/wallet-wc";
 import { result } from "lodash";
 import { secureKeystoreWallet } from '../wallets/secureKeystore/index.ts';
-
+import { Keyring } from "@polkadot/api";
+import { ChainflipPlugin } from "../plugins/chainflip/plugin.ts";
+import { ThorchainPlugin, MayachainPlugin } from "@swapkit/plugin-thorchain"; 
 // import { coinbaseWallet } from "@swapkit/wallet-coinbase";
 // import { evmWallet } from "@swapkit/wallet-evm-extensions";
 // import { keepkeyWallet } from "@swapkit/wallet-keepkey";
@@ -24,8 +29,27 @@ import { secureKeystoreWallet } from '../wallets/secureKeystore/index.ts';
 // import { talismanWallet } from "@swapkit/wallet-talisman";
 // import { trezorWallet } from "@swapkit/wallet-trezor";
 import { xdefiWallet, XDEFI_SUPPORTED_CHAINS } from "@swapkit/wallet-xdefi";
+import {
+	phantomWallet,
+	PHANTOM_SUPPORTED_CHAINS,
+} from "../wallets/wallet-phantom";
 import { keystoreWallet } from "@swapkit/wallet-keystore";
 
+const NETWORKS = {
+  secp256k1: [
+    ...EVMChains,       // All EVM chains
+    ...UTXOChains,      // All UTXO chains
+    ...CosmosChains,    // All Cosmos SDK chains
+    Chain.Chainflip     // Chainflip uses secp256k1 despite being Substrate-based
+  ],
+  ed25519: [
+    Chain.Solana,       // Solana
+    Chain.XRD          // Radix
+  ],
+  sr25519: [
+    Chain.Polkadot      // Only pure Substrate chain
+  ]
+};
 
 
 const SKClientContext = createContext(null);
@@ -89,7 +113,10 @@ const reducer = (state, action) => {
 				},
 			};
 		case "SET_CHAINFLIPTOOLBOX":
-			return { ...state, chainflipToolbox: action.chainflipToolbox };
+			if (!state.chainflipToolbox) {
+				return { ...state, chainflipToolbox: { [action.key]: action.chainflipToolbox } };
+			}
+			return { ...state, chainflipToolbox: { ...state.chainflipToolbox, [action.key]: action.chainflipToolbox } };
 
 		case "SET_PROVIDERS":
 			return { ...state, providers: action.providers };
@@ -135,28 +162,43 @@ export const SKClientProviderManager = ({ children }) => {
 
 			const client = createSwapKit({
 				config: {
-					utxoApiKey: "A___UmqU7uQhRUl4" + "UhNzCi5LOu81LQ1T",
+					blockchairApiKey: "A___UmqU7uQhRUl4" + "UhNzCi5LOu81LQ1T",
 					covalentApiKey: "cqt_rQygB4xJkdv" + "m8fxRcBj3MxBhCHv4",
 					ethplorerApiKey: "EK-8ftjU-8Ff" + "7UfY-JuNGL",
 					walletConnectProjectId: "dac706e68e589ffa15fed9bbccd825f7",
 
 					chainflipBrokerUrl: "https://chainflip.winbit32.com",
+					chainflipBrokerConfig: {
+						chainflipBrokerUrl: "https://chainflip.winbit32.com",
+						useChainflipSDKBroker: false,
+						chainflipBrokerEndpoint: "https://chainflip.winbit32.com",
+					},
 					thorswapApiKey: "",
 				},
+				plugins: {
+					...ChainflipPlugin,
+					...MayachainPlugin,
+					...ThorchainPlugin,
+				},
 				rpcUrls: {
-					FLIP: "https://api-chainflip.dwellir.com/204dd906-d81d-45b4-8bfa-6f5cc7163dbc",
+					Chainflip:
+						"https://api-chainflip.dwellir.com/204dd906-d81d-45b4-8bfa-6f5cc7163dbc",
 					ETH: "https://mainnet.infura.io/v3/c3b4e673639742a89bbddcb49895d568",
 					AVAX: "https://avalanche-mainnet.infura.io/v3/c3b4e673639742a89bbddcb49895d568",
 					DOT: "https://rpc.polkadot.io",
-					
+					KUJI: "https://kujira-rpc.publicnode.com:443",
+					Kujira: "https://kujira-rpc.publicnode.com:443",
+					Base: "https://api-base-mainnet-archive.dwellir.com/204dd906-d81d-45b4-8bfa-6f5cc7163dbc",
 					// XRD: "https://radix-mainnet.rpc.grove.city/v1/456359ff",
 					// Radix: "https://radix-mainnet.rpc.grove.city/v1/456359ff",
 				},
+
 				wallets: {
 					...walletconnectWallet,
 					...keystoreWallet,
 					...xdefiWallet,
 					...secureKeystoreWallet,
+					...phantomWallet,
 				},
 			});
 			console.log("Created client", client);
@@ -173,8 +215,8 @@ export const SKClientProviderManager = ({ children }) => {
 		dispatch({ type: "SET_CHAINFLIPBROKER", key, chainflipBroker });
 	}, []);
 
-	const setChainflipToolbox = useCallback((chainflipToolbox) => {
-		dispatch({ type: "SET_CHAINFLIPTOOLBOX", chainflipToolbox });
+	const setChainflipToolbox = useCallback((key, chainflipToolbox) => {
+		dispatch({ type: "SET_CHAINFLIPTOOLBOX", key, chainflipToolbox });
 	}, []);
 
 	const setWallets = useCallback((key, wallets) => {
@@ -214,40 +256,49 @@ export const SKClientProviderManager = ({ children }) => {
 		[state.clients, state.connectChains]
 	);
 
-	const getChainflipToolbox = useCallback(async (chain) => {
-		if (!state.chainflipToolbox) {
+	const getChainflipToolbox = useCallback(
+		async (key, chain) => {
+		if (!state.chainflipToolbox || !state.chainflipToolbox[key]) {
 
-			if (!chain) {
-				throw new Error("No chain provided to getChainflipToolbox");
-			}
+			// if (!chain) {
+			// 	throw new Error("No chain provided to getChainflipToolbox");
+			// }
 			try {
-				const keyRing = chain.cfKeyRing;
+				let keyRing = chain?.cfKeyRing;
+
+				if(!keyRing && chain.signer){
+
+					keyRing = chain.signer;
+				}
 
 				const chainflipToolbox = await ChainflipToolbox({
 					providerUrl: "wss://api-chainflip.dwellir.com/204dd906-d81d-45b4-8bfa-6f5cc7163dbc",
-						
 					signer: keyRing,
+					keyring: keyRing,
 					generic: false,
 				});
 
 				//Get PublicKey by decoding unit8array keyRing.publicKey
-				const publicKey = chainflipToolbox.api.createType("AccountId", keyRing.publicKey).toString();
-				console.log("Chainflip public key", publicKey);
+				// const publicKey = chainflipToolbox.api.createType("AccountId", keyRingPublicKey).toString();
+				// console.log("Chainflip public key", publicKey);
 
 
 				console.log("Created chainflip toolbox", chainflipToolbox, keyRing);
 				await chainflipToolbox.api.isReady;
-				setChainflipToolbox(chainflipToolbox);
+
+
+				setChainflipToolbox(key, chainflipToolbox);
 				return chainflipToolbox;
 			} catch (e) {
 				console.log("Error", e);
+				throw new Error("Error creating chainflip toolbox");
 			}
 
 		}
 
-		return state.chainflipToolbox;
+		return state.chainflipToolbox[key];
 
-	}, [setChainflipToolbox, state.chainflipToolbox]);
+	}, [setChainflipToolbox, state.chainflipToolbox ]);
 
 	const registerAsBroker = useCallback(async (toolbox) => {
 		const extrinsic = toolbox.api.tx.swapping?.registerAsBroker();
@@ -265,19 +316,39 @@ export const SKClientProviderManager = ({ children }) => {
 	const chainflipBroker = useCallback(
 		async (key, chain) => {
 			if (!state.chainflipBroker || !state.chainflipBroker[key]) {
-				const chainflipToolbox = await getChainflipToolbox(chain);
+				const chainflipToolbox = await getChainflipToolbox(key, chain);
 
-				const chainflipBroker = await ChainflipBroker(chainflipToolbox);
+				console.log("Creating chainflip broker", chainflipToolbox, chain);
+				
+		
+				const brokerPubKey = new Uint8Array([158, 110, 87, 118, 81, 171, 252, 12, 204, 174, 206, 219, 228, 26, 8, 230, 38, 189, 11, 212, 184, 247, 209, 83, 39, 161, 127, 35, 39, 204, 82, 4]);
+				const brokerAddressRaw = new Uint8Array([158, 110, 87, 118, 81, 171, 252, 12, 204, 174, 206, 219, 228, 26, 8, 230, 38, 189, 11, 212, 184, 247, 209, 83, 39, 161, 127, 35, 39, 204, 82, 4]);
+				const networkPrefix = 2112;
+				const brokerKeyRing = new Keyring({ type: "sr25519", ss58Format: networkPrefix }).addFromAddress(brokerAddressRaw, brokerPubKey);
+				
+				// {
+				// 	address: "cFMTDAyTJtVXM8qbucU1dvUSw9hFd2Vz9DLdt2CdHdLfwuvz2",
+				// 	addressRaw: brokerAddressRaw,
+				// 	publicKey: brokerPubKey,
+				// };
 
-				const cfAddress = chainflipToolbox.getAddress();
+				const brokerChain = {cfKeyRing: brokerKeyRing};
 
-				// await registerAsBroker(chainflipToolbox);
+				const brokerToolbox = await getChainflipToolbox("broker", brokerChain);
 
-				console.log("Chainflip address", cfAddress);
-				const cfBalance = await chainflipToolbox.getBalance(cfAddress);
-				console.log("Chainflip balance", cfBalance);
+				const chainflipBroker = await ChainflipBroker(brokerToolbox);
 
-				console.log("Created chainflip broker", chainflipBroker);
+				console.log("Created Chainflip broker", chainflipBroker, brokerToolbox);
+
+				// const cfAddress = chainflipToolbox.getAddress();
+
+				// // await registerAsBroker(chainflipToolbox);
+
+				// console.log("Chainflip address", cfAddress);
+				// const cfBalance = await chainflipToolbox.getBalance(cfAddress);
+				// console.log("Chainflip balance", cfBalance);
+
+				// console.log("Created chainflip broker", chainflipBroker);
 
 				// const amt = await AssetValue.from({
 				// 	symbol: "FLIP",
@@ -308,7 +379,7 @@ export const SKClientProviderManager = ({ children }) => {
 
 			return {
 				broker: state.chainflipBroker[key],
-				toolbox: state.chainflipToolbox,
+				toolbox: state.chainflipToolbox[key],
 			};
 		},
 		[getChainflipToolbox, setChainflipBroker, state.chainflipBroker, state.chainflipToolbox, state.wallets]
@@ -325,7 +396,6 @@ export const SKClientProviderManager = ({ children }) => {
 			}
 
 			const providersUnsorted = await providerResponse.json();
-			//sort and remove chainflip
 			const providers = providersUnsorted.sort((a, b) => {
 				if (a.provider === "THORSWAP" || b.provider === "MAYA") {
 					return -1;
@@ -338,14 +408,19 @@ export const SKClientProviderManager = ({ children }) => {
 
 			dispatch({ type: "SET_PROVIDERS", providers });
 
-			const tokensResponse = await Promise.all(
+			//providers we can do THORSWAP, MAYA, and CHAINFLIP
+			console.log("Providers", providers);
 
+
+
+
+			const tokensResponse = await Promise.all(
 				providers.map(async (provider) => {
 					const tokenResponse = await fetch(
 						`https://api.swapkit.dev/tokens?provider=${provider.provider}`
 					);
 					const tokenData = await tokenResponse.json();
-					if(!tokenData.tokens){
+					if (!tokenData.tokens) {
 						console.log("Error fetching tokens", tokenData);
 						return [];
 					}
@@ -542,31 +617,49 @@ export const useWindowSKClient = (key) => {
 					}
 				}
 				return promises;
-			} else if (firstWord === "WINBIT") {
-				console.log("Connecting with WinBitWallet");
+			// } else if (firstWord === "WINBIT") {
+			// 	console.log("Connecting with WinBitWallet");
 
-				const chains = [
-					Chain.Arbitrum,
-					Chain.Avalanche,
-					Chain.BinanceSmartChain,
-					Chain.Bitcoin,
-					Chain.BitcoinCash,
-					Chain.Cosmos,
-					Chain.Dogecoin,
-					Chain.Ethereum,
-					Chain.Kujira,
-					Chain.Litecoin,
-					Chain.Maya,
-					Chain.Optimism,
-					Chain.Polygon,
-					Chain.Solana,
-					Chain.THORChain,
-					// Chain.Base,
-				];
+			// 	const chains = [
+			// 		Chain.Arbitrum,
+			// 		Chain.Avalanche,
+			// 		Chain.BinanceSmartChain,
+			// 		Chain.Bitcoin,
+			// 		Chain.BitcoinCash,
+			// 		Chain.Cosmos,
+			// 		Chain.Dogecoin,
+			// 		Chain.Ethereum,
+			// 		Chain.Kujira,
+			// 		Chain.Litecoin,
+			// 		Chain.Maya,
+			// 		Chain.Optimism,
+			// 		Chain.Polygon,
+			// 		Chain.Solana,
+			// 		Chain.THORChain,
+			// 		// Chain.Base,
+			// 	];
+			// 	setChains(chains);
+
+			// 	if (await skClient.connectWinbitWallet(chains)) {
+			// 		console.log("Connected with Winbit");
+
+			// 		for (const chain of chains) {
+			// 			const wallet = await skClient.getWalletWithBalance(chain);
+			// 			if (wallet) {
+			// 				promises.push(callback(wallet, chain));
+			// 			}
+			// 		}
+			// 	}
+			// 	return promises;
+			} else if (firstWord === "PHANTOM") {
+				console.log("Connecting with Phantom");
+
+				const chains = PHANTOM_SUPPORTED_CHAINS;
+
 				setChains(chains);
 
-				if (await skClient.connectWinbitWallet(chains)) {
-					console.log("Connected with Winbit");
+				if (await skClient.connectPhantom(chains)) {
+					console.log("Connected with Phantom");
 
 					for (const chain of chains) {
 						const wallet = await skClient.getWalletWithBalance(chain);
@@ -576,51 +669,27 @@ export const useWindowSKClient = (key) => {
 					}
 				}
 				return promises;
+
+
+
 			} else if (firstWord === "SECUREKEYSTORE") {
 				console.log("Connecting with SecureKeystore");
-				const { password, dIndex, radixNetwork } =
-					await skClient.promptForPassword({
-						advancedContent: (
-							<>
-								<div className="dialog-field">
-									<label>Derivation Index:</label>
-									<select name="dIndex">
-										<option value="0" selected>
-											0
-										</option>
-										<option value="1">1</option>
-										<option value="2">2</option>
-										<option value="3">3</option>
-										<option value="4">4</option>
-										<option value="5">5</option>
-										<option value="6">6</option>
-										<option value="7">7</option>
-										<option value="8">8</option>
-										<option value="9">9</option>
-									</select>
-								</div>
-								<div className="dialog-field">
-									<label>Radix Network:</label>
-									<select name="radixNetwork">
-										<option value="legacy">Swapkit Legacy</option>
-										<option value="olympia">Olympia (Radix Legacy)</option>
-										<option value="mainnet" selected>
-											Mainnet (Babylon)
-										</option>
-									</select>
-								</div>
-							</>
-						),
-					});
+
+
+				const { password, dIndex, networkOptions } =
+					await skClient.promptForPassword();
+						
 				if (!password) {
 					return;
 				}
-				console.log("chains", connectChains, dIndex, radixNetwork);
+				console.log("chains", connectChains, dIndex, networkOptions);
 
 				for (const chain of connectChains) {
 					promises.push(
 						skClient
-							.connectSecureKeystore([chain], password, dIndex, { radixNetwork })
+							.connectSecureKeystore([chain], password, dIndex, {
+								networkOptions,
+							})
 							.then(async () => {
 								console.log("Connected to chain", chain);
 								if (!result) return;
@@ -644,10 +713,28 @@ export const useWindowSKClient = (key) => {
 				{return password;}
 			);
 
+			let chainsToConnect = connectChains;
+			const ps = phrase.split(" ");
+			if(ps[0] === "PK"){
+				//we have a private key
+				const key = ps[1].split(":");
+				const keyType = key[0];
+				//filter connectChains to only those that support the keyType
+				chainsToConnect = connectChains.filter((chain) => {
+					const networks = NETWORKS[keyType];
+					if (!networks) {
+						return false;
+					}
+					return networks.includes(chain);
+				});
+				phrase = key[1];
 
+				console.log("Connecting with private key", keyType, phrase, chainsToConnect);
+			}
+				
 
-			for (const chain of connectChains) {
-			 promises.push(
+			for (const chain of chainsToConnect) {
+				promises.push(
 					skClient
 						.connectSecureKeystore([chain], phrase.trim(), index)
 						.then(async () => {

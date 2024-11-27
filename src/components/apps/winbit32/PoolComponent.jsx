@@ -243,7 +243,7 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 			if(body.pools){ //maya
 				for (const pool of body.pools) {
 					//Get proper data: https://mayanode.mayachain.info/mayachain/pool/KUJI.KUJI/liquidity_provider/maya1wjr2az7ccjvyvuuw3mp9j60vx0rcazyzya9vxw
-					const mayaPoolURL = `https://mayanode.mayachain.info/mayachain/pool/${pool.pool}/liquidity_provider/${pool.runeAddress}`;
+					const mayaPoolURL = `https://tendermint.mayachain.info/mayachain/pool/${pool.pool}/liquidity_provider/${pool.runeAddress}`;
 					const mayaPoolResponse = await fetch(mayaPoolURL, {
 						method: "GET",
 						retries: 5,
@@ -312,7 +312,7 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 
 					//https://thornode.thorswap.net/thorchain/pool/ETH.FLIP-0X826180541412D574CF1336D22C0C0A287822678A/liquidity_provider/thor1wr4r0hw7apejj76xlxfxaw86r2v7r0ehl5sqg2
 
-					const thorPoolURL = `https://thornode.thorswap.net/thorchain/pool/${pool.pool}/liquidity_provider/${pool.runeAddress}`;
+					const thorPoolURL = `https://rpc.thorswap.net/thorchain/pool/${pool.pool}/liquidity_provider/${pool.runeAddress}`;
 					const thorPoolResponse = await fetch(thorPoolURL, {
 						method: "GET",
 						retries: 5,

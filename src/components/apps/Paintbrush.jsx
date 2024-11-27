@@ -340,6 +340,7 @@ const Paintbrush = ({ onMenuAction, windowA, windowId, handleOpenArray }) => {
 							<div className="dialog-field">
 								<textarea value={generatedPhrase} readOnly style={{ width: '100%', height: '100px', textAlign: 'justify' }} />
 							</div>
+							<div>Images can change due to compression etc. Always keep a backup of the phrase as text or a key.</div>
 							<div style={{ display: 'flex', justifyContent: 'center' }}>
 								<button className='swap-toolbar-button' onClick={() => {
 									openWinbit(generatedPhrase)

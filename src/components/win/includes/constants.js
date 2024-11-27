@@ -1,1 +1,1 @@
-export const walletNames = ["WALLETCONNECT", "XDEFI", "WINBIT", "SECUREKEYSTORE"];
+export const walletNames = ["WALLETCONNECT", "XDEFI", "WINBIT", "SECUREKEYSTORE", "PHANTOM", "PK"];

@@ -1,10 +1,12 @@
 {
   "name": "winbit32",
-  "version": "1.0a",
+  "version": "1.2th",
   "private": false,
   "homepage": "https://winbit32.com",
   "dependencies": {
     "@babel/plugin-proposal-private-property-in-object": "^7.21.11",
+    "@bufbuild/protobuf": "^1.10.0",
+    "@chainflip/sdk": "^1.6.7-rc.3",
     "@fortawesome/fontawesome-svg-core": "^6.6.0",
     "@fortawesome/free-brands-svg-icons": "^6.6.0",
     "@fortawesome/free-regular-svg-icons": "^6.6.0",
@@ -17,9 +19,8 @@
     "@radixdlt/radix-dapp-toolkit": "^2.0.3",
     "@radixdlt/radix-engine-toolkit": "^1.0.5",
     "@scure/bip39": "^1.2.1",
-    "@solana/spl-token-registry": "^0.2.4574",
     "@swapkit/plugin-chainflip": "^1.0.0-rc.72",
-    "@swapkit/sdk": "^1.1.8",
+    "@swapkit/sdk": "^2.0.4",
     "@swapkit/tokens": "nightly",
     "@swapkit/toolbox-radix": "^1.0.0-rc.5",
     "@swapkit/toolbox-substrate": "^1.0.0-rc.42",
@@ -86,17 +87,13 @@
     "predeploy": "react-app-rewired build",
     "predeploydev": "react-app-rewired build",
     "deploy": "gh-pages -d build -b main --remote upstream",
+    "deploybuilt": "gh-pages -d build -b main --remote upstream",
+
     "deploydev": "gh-pages -d build -b Dev",
     "start": "react-app-rewired start",
     "build": "react-app-rewired build",
     "test": "react-app-rewired test",
     "eject": "react-scripts eject"
-  },
-  "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest"
-    ]
   },
   "browserslist": {
     "production": [
@@ -118,6 +115,6 @@
     "webpack-target-webextension": "^1.1.2"
   },
   "target": [
-    "browserslist:modern"
+    "browserslist:ES2023"
   ]
 }

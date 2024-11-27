@@ -6,7 +6,7 @@ import { chainImages, fetchCategories, fetchTokensByCategory } from "./includes/
 import { debounce } from "lodash";
 
 const TokenChooserDialog = ({ isOpen, onClose, onConfirm, providerKey, wallets, otherToken, windowId, inputRef }) => {
-	const { providers, tokens, providerNames } = useWindowSKClient(providerKey);
+	const { providers: unfilteredProviders, tokens: unfilteredTokens, providerNames } = useWindowSKClient(providerKey);
 	const [selectedChain, setSelectedChain] = useState("");
 	const [selectedProvider, setSelectedProvider] = useState("");
 	const [selectedToken, setSelectedToken] = useState(null);
@@ -17,6 +17,12 @@ const TokenChooserDialog = ({ isOpen, onClose, onConfirm, providerKey, wallets, 
 	const [tokensByCategory, setTokensByCategory] = useState({});
 	const [restrictToProviders, setRestrictToProviders] = useState(null);
 	const [searchTextActive, setSearchTextActive] = useState(false);
+	const [providers, setProviders] = useState([]);
+	const tokens = useMemo(() => unfilteredTokens.filter(token => 
+		(token.provider.includes("THOR") || token.provider.includes("MAYA") || token.provider.includes("CHAINFLIP"))
+		&&
+		token.identifier.includes("/") === false
+	), [unfilteredTokens]);
 
 
 	const observer = useRef(new IntersectionObserver((entries) => {
@@ -29,6 +35,17 @@ const TokenChooserDialog = ({ isOpen, onClose, onConfirm, providerKey, wallets, 
 			}
 		});
 	}, { rootMargin: '200px' }));
+
+	useEffect(() => {
+
+		//filter out all ohters
+		const providers = unfilteredProviders.filter((provider) => {
+			return provider.provider.includes("THOR") || provider.provider.includes("MAYA") || provider.provider.includes("CHAINFLIP");
+		});
+		setProviders(providers);
+
+	}, [unfilteredProviders]);
+
 
 	useEffect(() => {
 		return () => observer.current.disconnect();

@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom';
 import TitleBar from './TitleBar';
 import Draggable from 'react-draggable'; // For draggable dialogs
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faCircleQuestion } from '@fortawesome/free-solid-svg-icons';
+import { faCircleExclamation, faCircleInfo, faCircleQuestion } from '@fortawesome/free-solid-svg-icons';
 
 const DialogBox = React.memo(({
 	title = 'Dialog',
@@ -20,10 +20,10 @@ const DialogBox = React.memo(({
 	children
 }) => {
 	const icons = {
-		info: 'ℹ️',
+		info: <FontAwesomeIcon icon={faCircleInfo} style={{ color: 'blue' }} />,
 		question: <FontAwesomeIcon icon={faCircleQuestion} style={{ color: 'blue' }} />,
 		questionok: <FontAwesomeIcon icon={faCircleQuestion} style={{ color: 'blue' }} />,
-		exclamation: '❗',
+		exclamation: <FontAwesomeIcon icon={faCircleExclamation} style={{ color: 'red' }} />,
 		stop: <img src='stop.png' alt='stop' />,
 		key: <img src='/images/safe.png' alt='key' style={{ width: '64px', height: '64px' }} />
 	};
