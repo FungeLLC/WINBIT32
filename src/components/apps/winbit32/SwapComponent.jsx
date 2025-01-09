@@ -146,7 +146,7 @@ token_to=${swapTo?.identifier || ''}
 amount=${amount}
 destination=${destinationAddress}
 route=${route}
-fee_option=${FeeOption[selectedRoute] || 'Average'}
+fee_option=${feeOption || 'Average'}
 slippage=${slippage}
 `;
 

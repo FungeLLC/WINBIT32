@@ -14,6 +14,21 @@ export const chooseWalletForToken = (token, wallets) => {
 };
 
 
+const getFeeOption = (feeOption) => {
+	switch (feeOption.toLowerCase()) {
+		case "fast":
+			return FeeOption.Fast;
+		case "average":
+			return FeeOption.Average;
+		case "fastest":
+			return FeeOption.Fastest;
+		default:
+			return FeeOption.Average;
+	}
+};
+
+
+
 export const handleApprove = async (
 	swapFrom,
 	amount,
@@ -436,7 +451,7 @@ export const handleSwap = async (
 	const swapParams = {
 		route: route,
 		streamSwap: route.streamingSwap ? true : false,
-		feeOption: FeeOption[feeOption] || FeeOption.Average,
+		feeOption: getFeeOption(feeOption),
 		recipient: destinationAddress,
 	
 	};
