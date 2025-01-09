@@ -7,6 +7,14 @@ const addWindowAction = (newWindow) => ({
 	payload: newWindow,
 });
 
+const MAXIMIZE_WINDOW = "MAXIMIZE_WINDOW";
+
+const maximiseWindowAction = (window) => ({
+	type: MAXIMIZE_WINDOW,
+	payload: window,
+});
+
+
 const recursiveFindProgram = (programs, progName) => {
 
 	console.log('recursiveFindProgram', programs, progName);
@@ -131,6 +139,10 @@ export function createNewWindow(
 	console.log("dispatching add window action", newWindow);
 	dispatch(addWindowAction(newWindow));
 	console.log("Added window", newWindow);
+	if(program.maximised){
+		console.log('Maximising window', newWindow.id);
+		dispatch(maximiseWindowAction(newWindow));	
+	}
 
 	//only do at top level... count handleOpenArray
 	if (windowName === "desktop") {

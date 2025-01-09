@@ -79,6 +79,7 @@ export const chainImages = {
 	GAIA: "https://static.thorswap.net/token-list/images/gaia.atom.png",
 	XRD: "https://storage.googleapis.com/token-list-swapkit-dev/images/xrd.xrd.png",
 	SOL: "https://static.thorswap.net/token-list/images/sol.sol.png",
+	BASE: "https://static.thorswap.net/token-list/images/base.base.png",
 };
 
 export 	const fetchTokenPrices = async (swapFrom, swapTo) => {
@@ -109,10 +110,10 @@ export 	const fetchTokenPrices = async (swapFrom, swapTo) => {
 
 
 		const fromPrice =
-			data.find((item) => item.identifier === swapFrom.identifier)?.price_usd ||
+			data.find((item) => item.identifier.toUpperCase() === swapFrom.identifier.toUpperCase())?.price_usd ||
 			0;
 		const toPrice =
-			data.find((item) => item.identifier === swapTo.identifier)?.price_usd ||
+			data.find((item) => item.identifier.toUpperCase() === swapTo.identifier.toUpperCase())?.price_usd ||
 			0;
 		console.log(
 			"Token prices:",

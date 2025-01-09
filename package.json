@@ -1,6 +1,6 @@
 {
   "name": "winbit32",
-  "version": "1.2.51.YULE",
+  "version": "1.2.52",
   "private": false,
   "homepage": "https://winbit32.com",
   "dependencies": {
@@ -12,6 +12,7 @@
     "@fortawesome/free-regular-svg-icons": "^6.6.0",
     "@fortawesome/free-solid-svg-icons": "^6.6.0",
     "@fortawesome/react-fontawesome": "^0.2.2",
+    "@noble/hashes": "1.6.1",
     "@noble/secp256k1": "^2.1.0",
     "@radixdlt/account": "^3.0.14",
     "@radixdlt/babylon-core-api-sdk": "^1.2.0",
@@ -57,6 +58,7 @@
     "lodash": "^4.17.21",
     "lz-string": "^1.5.0",
     "mathjs": "^12.4.2",
+    "micro-key-producer": "^0.7.2",
     "path-browserify": "^1.0.1",
     "pnpm": "^9.2.0",
     "qrcode.react": "^3.1.0",
@@ -83,6 +85,9 @@
     "webpack": "^5.88.1",
     "webpack-cli": "^4.9.0",
     "yarn": "^1.22.19"
+  },
+  "overrides": {
+    "@noble/hashes": "1.6.1"
   },
   "scripts": {
     "predeploy": "react-app-rewired build",

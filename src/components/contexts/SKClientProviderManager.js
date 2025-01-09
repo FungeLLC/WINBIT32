@@ -193,6 +193,7 @@ export const SKClientProviderManager = ({ children }) => {
 					BASE: "https://api-base-mainnet-archive.dwellir.com/204dd906-d81d-45b4-8bfa-6f5cc7163dbc",
 					BSC: "https://api-bsc-mainnet-full.dwellir.com/204dd906-d81d-45b4-8bfa-6f5cc7163dbc",
 					ARB: "https://api-arbitrum-mainnet-archive.dwellir.com/204dd906-d81d-45b4-8bfa-6f5cc7163dbc",
+					//ARB: "https://arbitrum-mainnet.infura.io/v3/c3b4e673639742a89bbddcb49895d568",
 					OP: "https://api-optimism-mainnet-archive.dwellir.com/204dd906-d81d-45b4-8bfa-6f5cc7163dbc",
 					MATIC:
 						"https://api-polygon-mainnet-full.dwellir.com/204dd906-d81d-45b4-8bfa-6f5cc7163dbc",
