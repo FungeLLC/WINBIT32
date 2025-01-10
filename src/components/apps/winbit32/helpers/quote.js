@@ -1,10 +1,13 @@
 import BigNumber from "bignumber.js";
-import { AssetValue } from "@swapkit/helpers";
-import { BigIntArithmetics } from "@swapkit/helpers";
+import { AssetValue } from "./assetValue";
+import { BigIntArithmetics } from "./bigIntArithmetics";
+import { BigIntArithmetics as SKBigIntArithmatics } from "@swapkit/sdk";
+import { AssetValue as SKAssetValue } from "@swapkit/sdk";
 import bigInt from "big-integer";
 import { SwapSDK, Chains, Assets } from "@chainflip/sdk/swap";
 import { skChainToChainflipChain, skAssetToChainflipAsset } from "../../../wallets/wallet-phantom/tools";
-import { EstimatedTimeSchema } from "@swapkit/sdk";
+
+
 
 export async function getQuoteFromThorSwap(quoteParams) {
 	const fetch = require("fetch-retry")(global.fetch);
@@ -329,12 +332,16 @@ export function amountInBigInt(amount, decimals) {
 	//convert to bigint
 
 	const bigFloatWithNoDecimals = (amount * 10 ** decimals).toFixed(0);
-	console.log('bigFloatWithNoDecimals', bigFloatWithNoDecimals);
+	console.log('bigFloatWithNoDecimals', bigFloatWithNoDecimals, decimals);
+	
 	//convert amount to bigint with decimals
-	const { bigIntValue, decimalMultiplier } = BigIntArithmetics.fromBigInt(
-		bigInt(bigFloatWithNoDecimals),
-		decimals
+	const bigA = new BigIntArithmetics(
+		{ value: amount, decimal: decimals, decimalMultiplier: 10 ** decimals }
 	);
+
+	console.log('bigA', bigA);
+
+	const bigIntValue = bigA.bigIntValue;
 
 	return bigIntValue;
 }
@@ -415,17 +422,37 @@ export async function getAssetValue(asset, value) {
 		asset.decimals = 18;
 
 	}
-	// else{
+	//  else{
+	// 	const token = staticTokensMap.get(
+	// 		asset.chain === Chain.Solana ? asset.identifier : asset.identifier.toUpperCase()
+	// 	);
+	// 	const tokenDecimal = token?.decimal;
+	//  }
+	const amountInBigIntasBigInt = amountInBigInt(value, asset.decimals);
+
+	const amountInBigIntAsStr = amountInBigIntasBigInt.toString();
+
+	console.log('amountInBigIntAsStr', amountInBigIntAsStr, value, asset.decimals);
 
 	assetValue = await AssetValue.from({
 		asset: asset.chain.toUpperCase() === 'SOL'? asset.identifier : 	asset.identifier.toUpperCase().replace("0X", "0x"),
 		//convert amount to bigint with decimals
-		value: amountInBigInt(value, asset.decimals),
+		value: amountInBigIntAsStr,
 		fromBaseDecimal: asset.decimals,
 		asyncTokenLookup: false,
 
 
 	});
+
+
+	// if(assetValue.decimalMultiplier !== 10 ** asset.decimals){
+	// 	assetValue.decimal = assetValue.decimalMultiplier.toString().length - 1;
+	// 	console.log('assetValue.decimalMultiplier differs from decimal', assetValue.decimalMultiplier);
+		
+	// }
+
+
+
 	// }
 
 	// assetValue: G;
@@ -460,9 +487,27 @@ export async function getAssetValue(asset, value) {
 	if (isNaN(otherBits.decimalDifference)) {
 		otherBits.decimalDifference = 0;
 	}
+	if(otherBits.decimalDifference == 0){
+		const skAssetValue = await SKAssetValue.from({
+			asset:
+				asset.chain.toUpperCase() === "SOL"
+					? asset.identifier
+					: asset.identifier.toUpperCase().replace("0X", "0x"),
+			//convert amount to bigint with decimals
+			value: amountInBigIntAsStr,
+			asyncTokenLookup: true,
+		});
 
 
-	otherBits.decimalDifferenceDivider = bigInt(10).pow(
+		const skBigInt = skAssetValue;
+		console.log('skBigInt', skBigInt);
+		const skbiDecimalMultiplierDifference = skBigInt.decimalMultiplier.toString().length - assetValue.decimalMultiplier.toString().length;
+		console.log('skbiDecimalMultiplierDifference', skbiDecimalMultiplierDifference);
+		otherBits.decimalDifference = skbiDecimalMultiplierDifference;
+
+	}
+
+		otherBits.decimalDifferenceDivider = bigInt(10).pow(
 		otherBits.decimalDifference
 	);
 
