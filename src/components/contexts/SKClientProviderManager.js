@@ -397,16 +397,16 @@ export const SKClientProviderManager = ({ children }) => {
 
 	const loadProvidersAndTokens = useCallback(async () => {
 		try {
-			let providerResponse;	
+			let providerResponse;
 			providerResponse = await fetch("https://api.swapkit.dev/providers");
 
-			if(providerResponse.status !== 200){
+			if (providerResponse.status !== 200) {
 				console.log("Error fetching providers", providerResponse);
 				providerResponse = await fetch("https://dev-api.swapkit.dev/providers");
 			}
 
 			const providersUnsorted = await providerResponse.json();
-			const providers = providersUnsorted.sort((a, b) => {
+			const allProviders = providersUnsorted.sort((a, b) => {
 				if (a.provider === "THORSWAP" || b.provider === "MAYA") {
 					return -1;
 				}
@@ -416,13 +416,15 @@ export const SKClientProviderManager = ({ children }) => {
 				return a.provider < b.provider ? -1 : 1;
 			});
 
+			//providers we can do begin with  THOR, MAYA, and CHAINFLIP
+			const providers = allProviders.filter(
+				(p) => p.provider.includes("THOR") || p.provider.includes("MAYA") || p.provider.includes("CHAINFLIP")
+			);
+
+
 			dispatch({ type: "SET_PROVIDERS", providers });
 
-			//providers we can do THORSWAP, MAYA, and CHAINFLIP
 			console.log("Providers", providers);
-
-
-
 
 			const tokensResponse = await Promise.all(
 				providers.map(async (provider) => {

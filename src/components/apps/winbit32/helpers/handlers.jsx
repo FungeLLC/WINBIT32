@@ -248,10 +248,14 @@ export const handleSwap = async (
 	console.log("wallet", wallet);
 
 	// try {
-	const route =
+	const oRoute =
 		selectedRoute === "optimal" && routes.length > 0
 			? routes.find(({ optimal }) => optimal) || routes[0]
 			: routes.find((route) => route.providers.join(", ") === selectedRoute);
+
+	//clone route
+	const route = oRoute ? JSON.parse(JSON.stringify(oRoute)) : null;
+
 	if (!route || route.disabled) {
 		setStatusText("No route selected");
 		setSwapInProgress(false);
