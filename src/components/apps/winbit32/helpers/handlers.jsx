@@ -41,7 +41,8 @@ export const handleApprove = async (
 	setExplorerUrl,
 	routes,
 	selectedRoute,
-	chainflipBroker
+	chainflipBroker,
+	feeOption,
 ) => {
 	setSwapInProgress(true);
 	setShowProgress(true);
@@ -139,7 +140,7 @@ export const handleApprove = async (
 	const ApproveParams = {
 		assetAddress: swapFrom.address,
 		spenderAddress: route.contract || route.targetAddress,
-		feeOptionKey: FeeOption.Average,
+		feeOptionKey: FeeOption.Fast,
 		amount: assetValue.assetValue.bigIntValue,
 		from: wallet.address,
 	};
@@ -214,7 +215,7 @@ export const handleSwap = async (
 	iniData,
 	license,
 	doSwap = true,
-	setRoutes
+	setRoutes,
 ) => {
 	if (swapInProgress) return;
 	setSwapInProgress(true);
@@ -253,8 +254,19 @@ export const handleSwap = async (
 			? routes.find(({ optimal }) => optimal) || routes[0]
 			: routes.find((route) => route.providers.join(", ") === selectedRoute);
 
-	//clone route
-	const route = oRoute ? JSON.parse(JSON.stringify(oRoute)) : null;
+	//clone route in a bitint safe way (NOT JSON)
+	const deepCloneWithBigInt = (obj) => {
+		if (obj === null || typeof obj !== 'object') return obj;
+		if (typeof obj === 'bigint') return BigInt(obj.toString());
+		const clone = Array.isArray(obj) ? [] : {};
+		for (const key in obj) {
+			clone[key] = deepCloneWithBigInt(obj[key]);
+		}
+		return clone;
+	};
+
+	const route = deepCloneWithBigInt(oRoute);
+
 
 	if (!route || route.disabled) {
 		setStatusText("No route selected");

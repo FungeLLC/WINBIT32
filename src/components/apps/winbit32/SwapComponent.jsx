@@ -667,7 +667,8 @@ swap_count=${streamingNumSwaps}
 							setExplorerUrl,
 							routes,
 							selectedRoute,
-							chainflipBroker
+							chainflipBroker,
+							feeOption,
 						);
 					}}>
 						<div className='swap-toolbar-icon'>✅</div>
