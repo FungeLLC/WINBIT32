@@ -550,6 +550,10 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 					};
 				}
 			}
+			if (assetValue.assetValue.chain === 'BASE' && assetValue.assetValue.address === undefined) {
+				// assetValue.assetValue.address = '0x0000000000000000000000000000000000000000';
+				assetValue.assetValue.symbol = 'ETH-0x0000000000000000000000000000000000000000';
+			}
 
 
 			const liquidityParams = {
@@ -967,6 +971,7 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 				<label>Asset Amount</label>
 				<input type="number" value={assetAmount} onChange={e => setAssetAmount(e.target.value)} disabled={swapInProgress} />
 			</div>
+			<div>Remember to click calculate or your liquidity may be added wrong!</div>
 				<div style={{ maxWidth: '100%', flexGrow: 1 }}>
 					<DataTable
 						data={positions}
