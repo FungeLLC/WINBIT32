@@ -27,6 +27,7 @@ import JupiterSwapComponent from "../apps/winbit32/solswap/JupiterSwapComponent"
 import VTools from "../apps/sectools/vtools/VTools";
 import RareSats from "../apps/RareSats";
 import ProgramGroup from "../apps/ProgGroup";
+import Swap123 from "../apps/winbit32/Swap123";
 
 export const getPrograms = () => {
 	return [
@@ -253,6 +254,23 @@ export const getPrograms = () => {
 										smHeight: 350,
 									},
 								},
+								// {
+								// 	progID: 1,
+								// 	title: "Evora Swap",
+								// 	icon: "🔢",
+								// 	progName: "evora.exe", // Added name for "File Manager"
+								// 	component: Swap123,
+								// 	defaultOpen: false,
+								// 	maximized: true,
+								// 	initialPosition: {
+								// 		x: "auto",
+								// 		y: 0,
+								// 		width: 850,
+								// 		height: 675,
+								// 		smHeight: 500,
+								// 		smWidth: 350,
+								// 	},
+								// },
 								{
 									progID: 2,
 									title: "Send",

@@ -18,13 +18,34 @@ import { fetchTokenPrices } from './includes/tokenUtils';
 import { generateSwapReport } from './helpers/report';
 import { copyToClipboard, qrToast } from '../../win/includes/utils';
 import { FaCopy, FaQrcode } from 'react-icons/fa';
+import styled from 'styled-components';
 
+// Add new styled components
+const EditModeContainer = styled.div`
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+`;
 
+const EditModeButtons = styled.div`
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 10px;
+`;
 
-
-const SwapComponent = ({ providerKey, windowId, programData, appData, onOpenWindow, metadata, hashPath, sendUpHash }) => {
+const SwapComponent = ({
+	providerKey,
+	windowId,
+	programData,
+	appData,
+	onOpenWindow,
+	metadata,
+	hashPath,
+	sendUpHash,
+}) => {
 	const { skClient, tokens, wallets, chainflipBroker } = useWindowSKClient(providerKey);
-	const { setPhrase, isRandomPhrase } = programData;
+	const { isRandomPhrase } = programData;
 	const { license, embedMode } = appData || {}
 	const [swapFrom, setSwapFrom] = useIsolatedState(windowId, 'swapFrom', metadata.swapFrom || null);
 	const [swapFromAddress, setSwapFromAddress] = useIsolatedState(windowId, 'swapFromAddress', '');
@@ -32,6 +53,7 @@ const SwapComponent = ({ providerKey, windowId, programData, appData, onOpenWind
 	const [amount, setAmount] = useIsolatedState(windowId, 'amount', 0);
 	const [destinationAddress, setDestinationAddress] = useIsolatedState(windowId, 'destinationAddress', '');
 	const [iniData, setIniData] = useIsolatedState(windowId, 'iniData', '');
+	const [initialIniData, setInitialIniData] = useIsolatedState(windowId, 'initialIniData', metadata.initialIniData || '');
 	const currentIniData = useRef(iniData);
 	const [routes, setRoutes] = useIsolatedState(windowId, 'routes', []);
 	const [selectedRoute, setSelectedRoute] = useIsolatedState(windowId, 'selectedRoute', 'optimal');
@@ -64,7 +86,12 @@ const SwapComponent = ({ providerKey, windowId, programData, appData, onOpenWind
 	const [reportData, setReportData] = useIsolatedState(windowId, 'reportData', {});
 	const [thorAffiliate, setThorAffiliate] = useIsolatedState(windowId, 'thorAffiliate', metadata.tcName?.split('.')[0].toLowerCase().replace([/[^a-z0-9]/g], '') || 'be');
 	const [mayaAffiliate, setMayaAffiliate] = useIsolatedState(windowId, 'mayaAffiliate', metadata.mayaName?.split('.')[0].toLowerCase().replace([/[^a-z0-9]/g], '') || 'be');
-	const bigInt = require('big-integer');
+	const [editMode, setEditMode] = useIsolatedState(windowId, 'editMode', metadata.editMode || false);
+	
+	const onSave = metadata.onSave;
+	const onCancel = metadata.onCancel;
+
+	console.log('Swap component metadata ini:', metadata);
 
 	const txnTimerRef = useRef(txnTimer);
 
@@ -74,7 +101,7 @@ const SwapComponent = ({ providerKey, windowId, programData, appData, onOpenWind
 	};
 
 	const setExplorerUrl = useCallback((url) => {
-		if(url === ''){
+		if (url === '') {
 			setExplorerUrls([]);
 			return;
 		}
@@ -224,10 +251,10 @@ swap_count=${streamingNumSwaps}
 		const token = swapFrom;
 		const wallet = wallets.find(w => w?.chain === token?.chain);
 		console.log('Wallet:', wallet, 'Token:', token, 'Hash Path:', hashPath, 'Embed Mode:', embedMode, 'Random Phrase:', isRandomPhrase);
-		if (hashPath && hashPath.length > 0 && hashPath[0].includes('CHAINFLIP') && embedMode && isRandomPhrase){
-				const r = routes.find(route => route.providers.includes('CHAINFLIP_DCA') || route.providers.includes('CHAINFLIP'));
-				setSwapFromAddress(r?.cfQuote?.depositAddress || 'Click Open Channel to get deposit address');
-		}else{
+		if (hashPath && hashPath.length > 0 && hashPath[0].includes('CHAINFLIP') && embedMode && isRandomPhrase) {
+			const r = routes.find(route => route.providers.includes('CHAINFLIP_DCA') || route.providers.includes('CHAINFLIP'));
+			setSwapFromAddress(r?.cfQuote?.depositAddress || 'Click Open Channel to get deposit address');
+		} else {
 			setSwapFromAddress(wallet?.address || '');
 		}
 		const balance = wallet?.balance?.find(
@@ -324,7 +351,12 @@ swap_count=${streamingNumSwaps}
 
 
 	useEffect(() => {
-		if (hashPath && hashPath.length > 0 && tokens && tokens.length > 0 && !metadata.swapFrom && !metadata.swapTo) {
+		if(initialIniData && initialIniData.length > 0){
+			console.log('Initial INI data:', initialIniData);
+			setIniData(initialIniData);
+			setInitialIniData('');
+		}
+		else if (hashPath && hashPath.length > 0 && tokens && tokens.length > 0 && !metadata.swapFrom && !metadata.swapTo) {
 			setTextareaActive(true);
 
 			const parts = hashPath[0].split('&');
@@ -579,7 +611,7 @@ swap_count=${streamingNumSwaps}
 				//if chainflip set streaming
 				if (r.providers.includes('CHAINFLIP_DCA') || r.providers.includes('CHAINFLIP')) {
 					console.log('Chainflip route selected');
-					if(r.cfQuote?.dcaParams?.numberOfChunks){
+					if (r.cfQuote?.dcaParams?.numberOfChunks) {
 						setIsStreamingSwap(true);
 						if (!manualStreamingSet) {
 							setStreamingInterval(r.cfQuote?.dcaParams?.chunkIntervalBlocks || 10);
@@ -587,13 +619,13 @@ swap_count=${streamingNumSwaps}
 						}
 					}
 
-					if (embedMode && isRandomPhrase){
+					if (embedMode && isRandomPhrase) {
 						setSwapFromAddress(r.cfQuote?.depositAddress || 'Click Open Channel to get deposit address');
 					}
 					return;
 				}
 
-				
+
 
 
 				const parts = r.memo?.split(":");
@@ -617,157 +649,170 @@ swap_count=${streamingNumSwaps}
 
 		, [selectedRoute, routes, setStreamingInterval, setStreamingNumSwaps, setIsStreamingSwap, isRandomPhrase]);
 
+
+	const handleSaveClick = () => {
+		onSave?.(iniData);
+	};
+
 	return (
+
 		<>
 			<div className="swap-toolbar">
-				<button className='swap-toolbar-button' onClick={() => handleSwap(swapFrom,
-					swapTo,
-					amount,
-					destinationAddress,
-					routes,
-					selectedRoute,
-					slippage,
-					skClient,
-					wallets,
-					setStatusText,
-					setSwapInProgress,
-					setShowProgress,
-					setProgress,
-					setTxnHash,
-					setExplorerUrl,
-					setTxnStatus,
-					setTxnTimer,
-					tokens,
-					swapInProgress,
-					feeOption,
-					currentTxnStatus,
-					chainflipBroker,
-					isStreamingSwap,
-					streamingInterval,
-					streamingNumSwaps,
-					setReportData,
-					iniData,
-					license,
-					true,
-					setRoutes
-				)}>
-					<div className='swap-toolbar-icon'>🔄</div>
-					Execute
-				</button>
-				{swapFrom && swapFrom.identifier?.toLowerCase().includes('-0x') && !selectedRoute.includes('CHAINFLIP_DCA') && !swapInProgress && !selectedRoute.includes('CHAINFLIP') &&
-					<button className='swap-toolbar-button' onClick={() => {
-						handleApprove(swapFrom,
+				{editMode ? (
+					<EditModeButtons>
+						<button onClick={handleSaveClick}>Save</button>
+						<button onClick={onCancel}>Cancel</button>
+					</EditModeButtons>
+				) : (
+					
+						<button className='swap-toolbar-button' onClick={() => handleSwap(swapFrom,
+							swapTo,
 							amount,
+							destinationAddress,
+							routes,
+							selectedRoute,
+							slippage,
 							skClient,
 							wallets,
 							setStatusText,
 							setSwapInProgress,
 							setShowProgress,
 							setProgress,
+							setTxnHash,
 							setExplorerUrl,
-							routes,
-							selectedRoute,
-							chainflipBroker,
+							setTxnStatus,
+							setTxnTimer,
+							tokens,
+							swapInProgress,
 							feeOption,
-						);
-					}}>
-						<div className='swap-toolbar-icon'>✅</div>
-						Approve
-					</button>
-				}
-				{(selectedRoute.includes('CHAINFLIP_DCA') || selectedRoute.includes('CHAINFLIP')) &&
-					<button className='swap-toolbar-button' onClick={() => handleSwap(swapFrom,
-						swapTo,
-						amount,
-						destinationAddress,
-						routes,
-						selectedRoute,
-						slippage,
-						skClient,
-						wallets,
-						setStatusText,
-						setSwapInProgress,
-						setShowProgress,
-						setProgress,
-						setTxnHash,
-						setExplorerUrl,
-						setTxnStatus,
-						setTxnTimer,
-						tokens,
-						swapInProgress,
-						feeOption,
-						currentTxnStatus,
-						chainflipBroker,
-						isStreamingSwap,
-						streamingInterval,
-						streamingNumSwaps,
-						setReportData,
-						iniData,
-						license,
-						false,
-						setRoutes
-					)}>
-						<div className='swap-toolbar-icon'>📂</div>
-						Open Channel
-					</button>
-
-				}
-				<button className='swap-toolbar-button' onClick={() => {
-					setSwapInProgress(false);
-					setTxnHash('');
-					setTxnStatus('');
-					setStatusText("");
-					doGetQuotes(true);
-				}}>
-					<div className='swap-toolbar-icon'>❝</div>
-					Quote
-				</button>
-				<button className='swap-toolbar-button' onClick={() => {
-					const swapX = swapFrom;
-					setManualStreamingSet(false);
-					setSwapFrom(swapTo);
-					setSwapTo(swapX);
-				}}>
-					<div className='swap-toolbar-icon' >⇋</div>
-					Switch
-				</button>
-
-				{swapTo && swapFrom &&
-					<button
-						className='swap-toolbar-button'
-						onClick={() => setShowOutputInputDialog(true)}
-						disabled={swapInProgress}
-					>
-						<div className='swap-toolbar-icon'>🎯</div>
-						Target
-					</button>
-
-				}
-
-
-				{explorerUrls.length > 0 &&
-					explorerUrls.map((explorerUrl, index) => (
-						<button className='swap-toolbar-button' onClick={() => {
-							window.open(explorerUrl, '_blank');
-						}}>
-							<div className='swap-toolbar-icon' >⛓</div>
-							View TX
+							currentTxnStatus,
+							chainflipBroker,
+							isStreamingSwap,
+							streamingInterval,
+							streamingNumSwaps,
+							setReportData,
+							iniData,
+							license,
+							true,
+							setRoutes
+						)}>
+							<div className='swap-toolbar-icon'>🔄</div>
+							Execute
 						</button>
-					))
-				}
+						)
+					}
+						{swapFrom && swapFrom.identifier?.toLowerCase().includes('-0x') && !selectedRoute.includes('CHAINFLIP_DCA') && !swapInProgress && !selectedRoute.includes('CHAINFLIP') &&
+							<button className='swap-toolbar-button' onClick={() => {
+								handleApprove(swapFrom,
+									amount,
+									skClient,
+									wallets,
+									setStatusText,
+									setSwapInProgress,
+									setShowProgress,
+									setProgress,
+									setExplorerUrl,
+									routes,
+									selectedRoute,
+									chainflipBroker,
+									feeOption,
+								);
+							}}>
+								<div className='swap-toolbar-icon'>✅</div>
+								Approve
+							</button>
+						}
+						{(selectedRoute.includes('CHAINFLIP_DCA') || selectedRoute.includes('CHAINFLIP')) &&
+							<button className='swap-toolbar-button' onClick={() => handleSwap(swapFrom,
+								swapTo,
+								amount,
+								destinationAddress,
+								routes,
+								selectedRoute,
+								slippage,
+								skClient,
+								wallets,
+								setStatusText,
+								setSwapInProgress,
+								setShowProgress,
+								setProgress,
+								setTxnHash,
+								setExplorerUrl,
+								setTxnStatus,
+								setTxnTimer,
+								tokens,
+								swapInProgress,
+								feeOption,
+								currentTxnStatus,
+								chainflipBroker,
+								isStreamingSwap,
+								streamingInterval,
+								streamingNumSwaps,
+								setReportData,
+								iniData,
+								license,
+								false,
+								setRoutes
+							)}>
+								<div className='swap-toolbar-icon'>📂</div>
+								Open Channel
+							</button>
 
-				{reportData && reportData.ini &&
-					<button className='swap-toolbar-button' onClick={() => {
-						generateSwapReport(reportData, onOpenWindow);
-					}}>
-						<div className='swap-toolbar-icon' >📋</div>
-						Log
-					</button>
+						}
+						<button className='swap-toolbar-button' onClick={() => {
+							setSwapInProgress(false);
+							setTxnHash('');
+							setTxnStatus('');
+							setStatusText("");
+							doGetQuotes(true);
+						}}>
+							<div className='swap-toolbar-icon'>❝</div>
+							Quote
+						</button>
+						<button className='swap-toolbar-button' onClick={() => {
+							const swapX = swapFrom;
+							setManualStreamingSet(false);
+							setSwapFrom(swapTo);
+							setSwapTo(swapX);
+						}}>
+							<div className='swap-toolbar-icon' >⇋</div>
+							Switch
+						</button>
+
+						{swapTo && swapFrom &&
+							<button
+								className='swap-toolbar-button'
+								onClick={() => setShowOutputInputDialog(true)}
+								disabled={swapInProgress}
+							>
+								<div className='swap-toolbar-icon'>🎯</div>
+								Target
+							</button>
+
+						}
 
 
+						{explorerUrls.length > 0 &&
+							explorerUrls.map((explorerUrl, index) => (
+								<button className='swap-toolbar-button' onClick={() => {
+									window.open(explorerUrl, '_blank');
+								}}>
+									<div className='swap-toolbar-icon' >⛓</div>
+									View TX
+								</button>
+							))
+						}
 
-				}
+						{reportData && reportData.ini &&
+							<button className='swap-toolbar-button' onClick={() => {
+								generateSwapReport(reportData, onOpenWindow);
+							}}>
+								<div className='swap-toolbar-icon' >📋</div>
+								Log
+							</button>
+						}
 			</div>
+
 			{(statusText && statusText !== '') &&
 				<div className='status-text'>
 					{statusText}
@@ -777,7 +822,7 @@ swap_count=${streamingNumSwaps}
 
 			<div style={{ width: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }} className={'swap-component ' + (swapInProgress ? 'swap-in-progress' : '')}>
 
-				<div style={{ display: (swapInProgress || explorerUrls.length  ? 'flex' : 'none') }} className="swap-progress-container">
+				<div style={{ display: (swapInProgress || explorerUrls.length ? 'flex' : 'none') }} className="swap-progress-container">
 					{swapInProgress ? <div>
 						<div className="swap-progress" onClick={() => {
 							setTxnStatus((prev) => {
@@ -930,7 +975,7 @@ swap_count=${streamingNumSwaps}
 									<span>Information:</span>
 									<span>
 										<a href="https://docs.mayaprotocol.com/mayachain-dev-docs/introduction/swapping-guide/streaming-swaps" target="_blank">Maya</a> -
-										<a href="https://dev.thorchain.org/swap-guide/streaming-swaps.html" target="_blank" >Thorchain</a> - 
+										<a href="https://dev.thorchain.org/swap-guide/streaming-swaps.html" target="_blank" >Thorchain</a> -
 										<a href="https://docs.chainflip.io/swapping/integrations/swapping-basics#dollar-cost-average-dca-improving-price" target="_blank" >Chainflip</a>
 									</span>
 								</div>
@@ -1025,3 +1070,4 @@ swap_count=${streamingNumSwaps}
 };
 
 export default SwapComponent;
+

@@ -6,7 +6,7 @@ import ProgressBar from '../../win/ProgressBar';
 import './styles/SwapComponent.css';
 import { getAssetValue, assetToFloat } from './helpers/quote';
 import { fetchTokenPrices } from './includes/tokenUtils';
-import { TransactionBuilder, RadixEngineToolkit, generateRandomNonce, ManifestBuilder, decimal, address, bucket, str  } from '@radixdlt/radix-engine-toolkit';
+import { TransactionBuilder, RadixEngineToolkit, generateRandomNonce, ManifestBuilder, decimal, address, bucket, str } from '@radixdlt/radix-engine-toolkit';
 import bigInt from 'big-integer';
 import { Chain } from '@swapkit/sdk';
 import { getMemoForDeposit } from '@swapkit/helpers';
@@ -19,6 +19,61 @@ import {
 	RequestClient,
 	SwapKitNumber,
 } from "@swapkit/helpers";
+
+const calculateRedeemValues = (position) => {
+	// Thorchain calculation
+	if (position.chain === 'thorchain') {
+		if (!position) return { asset: 0, rune: 0 };
+
+		// Example symmetrical position
+		const liquidityUnits = BigInt(position.liquidityUnits);
+		const sharedUnits = BigInt(position.sharedUnits);
+		const assetDepth = BigInt(position.poolAssetDepth);
+		const runeDepth = BigInt(position.poolRuneDepth);
+
+		// Use floats for intermediate calculations
+		const assetShareFloat = Number(assetDepth) / Number(liquidityUnits);	 
+		const runeShareFloat = Number(runeDepth) / Number(liquidityUnits) ;
+
+		const assetShare = assetShareFloat * Number(sharedUnits);
+		const runeShare = runeShareFloat * Number(sharedUnits);
+
+		console.log('ass', assetShareFloat, 'run', runeShareFloat);
+
+		console.log('assetShare', assetShare, 'runeShare', runeShare, 'assetDepth', assetDepth, 'runeDepth', runeDepth, 'liquidityUnits', liquidityUnits, 'sharedUnits', sharedUnits);
+
+
+
+		return { asset: BigInt(assetShare.toFixed()), rune: BigInt(runeShare.toFixed()) };
+	}
+
+	// Maya calculation
+	if (position.chain === 'maya') {
+		// Asymmetric LP
+		if (position.runeAdded && !position.assetAdded) {
+			const runeAdded = BigInt(position.runeAdded);
+			const runeWithdrawn = BigInt(position.runeWithdrawn || '0');
+			return {
+				asset: 0n,
+				rune: runeAdded - runeWithdrawn
+			};
+		}
+
+		// Symmetric LP
+		if (position.runeAdded && position.assetAdded) {
+			const runeAdded = BigInt(position.runeAdded);
+			const runeWithdrawn = BigInt(position.runeWithdrawn || '0');
+			const assetAdded = BigInt(position.assetAdded);
+			const assetWithdrawn = BigInt(position.assetWithdrawn || '0');
+			return {
+				asset: assetAdded - assetWithdrawn,
+				rune: runeAdded - runeWithdrawn
+			};
+		}
+	}
+
+	return { asset: 0n, rune: 0n };
+};
 
 
 const PoolComponent = ({ providerKey, windowId, programData }) => {
@@ -42,7 +97,7 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 
 
 	useEffect(() => {
-		if(progress === 100){
+		if (progress === 100) {
 			setTimeout(() => {
 				setShowProgress(false);
 			}, 2000);
@@ -208,12 +263,12 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 		//get all addresses from wallets
 		const addresses = Object.values(wallets).map(w => w.address);
 		const mayaAddress = addresses.find(a => a.startsWith('maya'));
-		
+
 		const fetch = require("fetch-retry")(global.fetch);
 		let fetchURLs = [];
 		//fetch both maya and thorchain pools using fetch
 		fetchURLs.push(`https://mu.thorswap.net/fullmember?address=${addresses.join(',')}`);
-		if(mayaAddress){
+		if (mayaAddress) {
 			fetchURLs.push(`https://midgard.mayachain.info/v2/member/${mayaAddress}`);
 		}
 
@@ -239,11 +294,12 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 		let positions = [];
 		// convert to some common format
 		for (const body of bodies) {
-			if(!body){ continue; }
-			if(body.pools){ //maya
+			if (!body) { continue; }
+			if (body.pools) { //maya
 				for (const pool of body.pools) {
 					//Get proper data: https://mayanode.mayachain.info/mayachain/pool/KUJI.KUJI/liquidity_provider/maya1wjr2az7ccjvyvuuw3mp9j60vx0rcazyzya9vxw
-					const mayaPoolURL = `https://tendermint.mayachain.info/mayachain/pool/${pool.pool}/liquidity_provider/${pool.runeAddress}`;
+				
+					const mayaPoolURL = `https://mayanode.mayachain.info/mayachain/pool/${pool.pool}/liquidity_provider/${pool.runeAddress}`;
 					const mayaPoolResponse = await fetch(mayaPoolURL, {
 						method: "GET",
 						retries: 5,
@@ -256,8 +312,13 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 							return delay;
 						}
 					});
+
 					const mayaPoolBody = await mayaPoolResponse.json();
 					console.log('mayaPoolBody', mayaPoolBody);
+					
+
+					// const mayaPoolBody = await mayaPoolResponse.json();
+					// console.log('mayaPoolBody', mayaPoolBody);
 					// {
 					// 	"asset": "KUJI.KUJI",
 					// 		"cacao_address": "maya1wjr2az7ccjvyvuuw3mp9j60vx0rcazyzya9vxw",
@@ -293,56 +354,56 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 						runePending: pool.runePending,
 						runeWithdrawn: pool.runeWithdrawn,
 						runeDeposit: pool.cacaoDeposit,
-						asset: AssetValue.from({
-							asset: pool.pool,
-							value: mayaPoolBody.asset_redeem_value,
-							fromBaseDecimal: BaseDecimal.MAYA,
-						}),
-						base: AssetValue.from({
-							asset: "MAYA.CACAO",
-							value: (mayaPoolBody.cacao_redeem_value/100).toString().split('.')[0],
-							fromBaseDecimal: BaseDecimal.MAYA,
-							
-						}),
+
 					};
+
+				
+
+					position.asset = AssetValue.from({
+						asset: pool.pool,
+						value: BigInt(mayaPoolBody.asset_redeem_value),
+						BaseDecimal: BaseDecimal.MAYA,
+					});
+					position.base = AssetValue.from({
+						asset: "MAYA.CACAO",
+						value: BigInt(mayaPoolBody.cacao_redeem_value),
+						BaseDecimal: BaseDecimal.MAYA,
+					});
+
+
+
 					positions.push(position);
 				}
-			}else if(body.length){ //thorchain
+			} else if (body.length) { //thorchain
 				for (const pool of body) {
 
-					//https://thornode.thorswap.net/thorchain/pool/ETH.FLIP-0X826180541412D574CF1336D22C0C0A287822678A/liquidity_provider/thor1wr4r0hw7apejj76xlxfxaw86r2v7r0ehl5sqg2
+					// //https://thornode.thorswap.net/thorchain/pool/ETH.FLIP-0X826180541412D574CF1336D22C0C0A287822678A/liquidity_provider/thor1wr4r0hw7apejj76xlxfxaw86r2v7r0ehl5sqg2
+					// //https://mu.thorswap.net/lp_detail/thor1wr4r0hw7apejj76xlxfxaw86r2v7r0ehl5sqg2?pools=BASE.ETH
 
-					const thorPoolURL = `https://rpc.thorswap.net/thorchain/pool/${pool.pool}/liquidity_provider/${pool.runeAddress}`;
-					const thorPoolResponse = await fetch(thorPoolURL, {
-						method: "GET",
-						retries: 5,
-						headers: {
-							"Content-Type": "application/json",
-						},
-						retryDelay: function (attempt, error, response) {
-							const delay = Math.pow(2, attempt) * 1000; // 1000, 2000, 4000
-							console.log(`Retrying in ${delay}ms`, error, response);
-							return delay;
-						}
-					});
-					const thorPoolBody = await thorPoolResponse.json();
-					console.log('thorPoolBody', thorPoolBody);
+					// const thorPoolURL = `https://mu.thorswap.net/lp_detail/${pool.runeAddress}?pools=${pool.pool}`;
+					// const thorPoolResponse = await fetch(thorPoolURL, {
+					// 	method: "GET",
+					// 	retries: 5,
+					// 	headers: {
+					// 		"Content-Type": "application/json",
+					// 	},
+					// 	retryDelay: function (attempt, error, response) {
+					// 		const delay = Math.pow(2, attempt) * 1000; // 1000, 2000, 4000
+					// 		console.log(`Retrying in ${delay}ms`, error, response);
+					// 		return delay;
+					// 	}
+					// });
+					// const thorPoolBody = await thorPoolResponse.json();
+					// console.log('thorPoolBody', thorPoolBody);
+					// //returns:
+					// //[{"assetAddress":"0xfa9836AAD0E7EC4B22EeeAdb14b860Ce23ECCa3b","assetDepth":"7398079018","assetEarned":"0","assetPrice":"966.73770198368","assetPriceUsd":"3492.9845842818772","pool":"BASE.ETH","poolUnits":"0","rewards":"0","runeAddress":"thor1wr4r0hw7apejj76xlxfxaw86r2v7r0ehl5sqg2","runeDepth":"7152001908955","runeEarned":"0","runePriceUsd":"3.6131668156879684","sharedUnits":"356889772","stakeDetail":[],"usdEarned":"0","withdrawDetail":[]}]
 
 
 
 					const position = {
 						chain: 'thorchain',
 						pool: pool.pool,
-						asset: AssetValue.from({
-									asset: pool.pool,
-									value: thorPoolBody.asset_redeem_value,
-									fromBaseDecimal: BaseDecimal.THOR,
-								}),
-						base: AssetValue.from({
-									asset: "THOR.RUNE",
-									value: thorPoolBody.rune_redeem_value,
-									fromBaseDecimal: BaseDecimal.THOR,
-								}),
+
 						assetAdded: pool.assetAdded,
 						assetAddress: pool.assetAddress,
 						assetPending: pool.assetPending,
@@ -358,6 +419,20 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 						runeWithdrawn: pool.runeWithdrawn,
 						sharedUnits: pool.sharedUnits,
 					};
+
+					const { asset: assetRedeemValue, rune: runeRedeemValue } = calculateRedeemValues(position);
+
+					position.asset = AssetValue.from({
+						asset: pool.pool,
+						value: assetRedeemValue,
+						BaseDecimal: BaseDecimal.THOR,
+					});
+					position.base = AssetValue.from({
+						asset: "THOR.RUNE",
+						value: runeRedeemValue,
+						BaseDecimal: BaseDecimal.THOR,
+					});
+
 					positions.push(position);
 				}
 			}
@@ -409,10 +484,10 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 			const assetValue = await getAssetValue(asset, assetAmount);
 
 			let lm = liquidityMode;
-			if(liquidityMode === 'asym'){
-				if(baseAssetValue.assetValue.bigIntValue > assetValue.assetValue.bigIntValue){
+			if (liquidityMode === 'asym') {
+				if (baseAssetValue.assetValue.bigIntValue > assetValue.assetValue.bigIntValue) {
 					lm = 'baseAsset';
-				}else{
+				} else {
 					lm = 'asset';
 				}
 
@@ -420,7 +495,7 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 			}
 			let radixWallet = skClient.getWallet('XRD');
 			// const constructionMetadata = await radixWallet.api.LTS.getConstructionMetadata();
-			
+
 			console.log('radixWallet', radixWallet);
 
 			// if (!lockMode || !radixWallet.transferToAddress) {
@@ -481,12 +556,12 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 			// 						address(recipient),
 			// 						bucket(bucketId),
 			// 						str(memo)
-									
+
 			// 					])
-						
+
 			// 			}
 			// 		)
-					
+
 			// 		.build();
 			// 	console.log('transactionHeader', transactionHeader);
 			// 	console.log('transactionManifest', transactionManifest);
@@ -521,11 +596,11 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 			console.log('allWallets', allWallets);
 			//allwallets is an object with wallet names as keys and wallet objects as values
 			for (const wallet of Object.values(allWallets)) {
-				if(wallet.chain === 'XRD'){ continue; }
+				if (wallet.chain === 'XRD') { continue; }
 
 				const oMayaDeposit = wallet.deposit;
-				if(oMayaDeposit){
-					if(!wallet.oDeposit){
+				if (oMayaDeposit) {
+					if (!wallet.oDeposit) {
 						wallet.oDeposit = wallet.deposit;
 					}
 
@@ -538,8 +613,8 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 				}
 
 				const oMayaTransfer = wallet.transfer;
-				if(oMayaTransfer){
-					if(!wallet.oTransfer){
+				if (oMayaTransfer) {
+					if (!wallet.oTransfer) {
 						wallet.oTransfer = wallet.transfer;
 					}
 					wallet.transfer = function (params
@@ -567,7 +642,7 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 			let addLiquidityFn = skClient[pluginName].addLiquidity;
 			setProgress(13);
 
-			if(pluginName === 'mayachain'){
+			if (pluginName === 'mayachain') {
 
 				addLiquidityFn = async function addLiquidity({
 					baseAssetValue,
@@ -610,7 +685,7 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 
 						await new Promise(resolve => setTimeout(resolve, 15000));
 						console.log('assetTx ,waiting 15 done');
-					}else{
+					} else {
 						console.log('assetTx not required');
 						assetTx = true;
 					}
@@ -628,7 +703,7 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 
 							return { baseAssetTx, assetTx };
 						}
-					}else{
+					} else {
 						console.log('assetTx failed');
 					}
 
@@ -644,21 +719,21 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 				const howMany = baseAssetTx && assetTx ? "two" : "one";
 
 
-				setStatusText('Liquidity added successfully to '+ howMany +' pot(s)');
+				setStatusText('Liquidity added successfully to ' + howMany + ' pot(s)');
 				let txns = [];
-				if(baseAssetTx){
-					try{
+				if (baseAssetTx) {
+					try {
 						const url = getTxnUrl(baseAssetTx, baseAsset.chain, skClient);
 						txns.push(url);
-					}catch(e){
+					} catch (e) {
 						console.error('Error getting explorer tx url:', e);
 					}
 				}
-				if(assetTx){
-					try{
+				if (assetTx) {
+					try {
 						const url = getTxnUrl(assetTx, asset.chain, skClient);
 						txns.push(url);
-					}catch(e){
+					} catch (e) {
 						console.error('Error getting explorer tx url:', e);
 					}
 				}
@@ -680,11 +755,11 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 			console.log('allWallets', allWallets);
 			//allwallets is an object with wallet names as keys and wallet objects as values
 			for (const wallet of Object.values(allWallets)) {
-				if(wallet.chain === 'XRD'){ continue; }
-				if(wallet.oDeposit){
+				if (wallet.chain === 'XRD') { continue; }
+				if (wallet.oDeposit) {
 					wallet.deposit = wallet.oDeposit;
 				}
-				if(wallet.oTransfer){
+				if (wallet.oTransfer) {
 					wallet.transfer = wallet.oTransfer;
 				}
 			}
@@ -703,8 +778,8 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 		try {
 			const { fromPrice: basePrice, toPrice: assetPrice } = await fetchTokenPrices(baseAsset, asset);
 			console.log('Prices:', basePrice, assetPrice, baseAmount, assetAmount);
-			const baseAmountFloat = parseFloat(baseAmount || 0) ;
-			const assetAmountFloat = parseFloat(assetAmount || 0) ;
+			const baseAmountFloat = parseFloat(baseAmount || 0);
+			const assetAmountFloat = parseFloat(assetAmount || 0);
 
 			if (baseAmountFloat === 0 && assetAmountFloat > 0) {
 				const calculatedBaseAmount = (assetAmountFloat * assetPrice) / basePrice;
@@ -743,10 +818,10 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 			const to = wallets.find(w => w.chain === assetValue.chain).address;
 
 			const liquidityParams = {
-				assetValue, 
-				percent, 
-				from, 
-				to 
+				assetValue,
+				percent,
+				from,
+				to
 			};
 
 			const pluginName = baseAsset.chain.toLowerCase() === 'maya' ? 'mayachain' : 'thorchain';
@@ -777,7 +852,7 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 		}
 	};
 
-			
+
 
 
 
@@ -813,13 +888,13 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 	};
 
 	const renderStatus = () => {
-		if(statusText === ''){
+		if (statusText === '') {
 			return null;
 		}
 		return (
-		<div className="status-text">
-			{statusText}
-		</div>
+			<div className="status-text">
+				{statusText}
+			</div>
 		);
 
 	};
@@ -858,10 +933,10 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 		<div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', 'alignItems': 'center' }}>
 			{//form with button to remove liquidity with % slider
 			}
-			<div style={{ display: 'flex', flexDirection: 'row', 'alignItems': 'center', 'justifyContent': 'center', paddingTop: '30px', paddingBottom:'30px' }}>
+			<div style={{ display: 'flex', flexDirection: 'row', 'alignItems': 'center', 'justifyContent': 'center', paddingTop: '30px', paddingBottom: '30px' }}>
 				<button onClick={() => handleWithdrawLiquidity(data, 100)} disabled={swapInProgress}>Withdraw All</button>
-				<button onClick={() => handleWithdrawLiquidity(data, 50)}  disabled={swapInProgress}>Withdraw 50%</button>
-				<button onClick={() => handleWithdrawLiquidity(data, 25)}  disabled={swapInProgress}>Withdraw 25%</button>
+				<button onClick={() => handleWithdrawLiquidity(data, 50)} disabled={swapInProgress}>Withdraw 50%</button>
+				<button onClick={() => handleWithdrawLiquidity(data, 25)} disabled={swapInProgress}>Withdraw 25%</button>
 				<button onClick={() => handleWithdrawLiquidity(data, 10)} disabled={swapInProgress}>Withdraw 10%</button>
 			</div>
 			{/* table with all the other data
@@ -884,14 +959,14 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 
 	const columns = [
 
-		{ name: 'Asset', selector: row => row.asset.ticker,  sortable: true },
-		{ name: 'Asset Amount', selector: row => row.asset.bigIntValue,sortable: true, cell: row => <div>{assetToFloat(row.asset)}</div> },
+		{ name: 'Asset', selector: row => row.asset.ticker, sortable: true },
+		{ name: 'Asset Amount', selector: row => row.asset.bigIntValue, sortable: true, cell: row => <div>{assetToFloat(row.asset)}</div> },
 		{ name: 'Base', selector: row => row.base.ticker, sortable: true },
 		{ name: 'Base Amount', selector: row => row.base.bigIntValue, sortable: true, cell: row => <div>{assetToFloat(row.base)}</div> },
 	];
 
 	return (
-		<div className="swap-component" style={{display:'flex', flexDirection:'column'}}>
+		<div className="swap-component" style={{ display: 'flex', flexDirection: 'column' }}>
 			<div className="swap-toolbar">
 				<button className="swap-toolbar-button" onClick={handleAddLiquidity}>
 					<div className="swap-toolbar-icon">➕</div>
@@ -914,13 +989,13 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 			</div>
 
 			{renderStatus()}
-			{showProgress && 
-							<div className="swap-progress-container">
-									<ProgressBar percent={progress} />
-								</div>
+			{showProgress &&
+				<div className="swap-progress-container">
+					<ProgressBar percent={progress} />
+				</div>
 			}
 
-			<div className="field-group token-select-group" style={{flexGrow:0,paddingTop:'10px',paddingBottom:'10px'}}>
+			<div className="field-group token-select-group" style={{ flexGrow: 0, paddingTop: '10px', paddingBottom: '10px' }}>
 				<div className="token-select radio-select">
 					<label><input
 						type="radio"
@@ -929,26 +1004,26 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 						onChange={() => handleBaseTokenSelect('thor.rune')}
 						checked={baseAsset?.identifier.toLowerCase() === 'thor.rune'}
 					/>
-					 RUNE</label>
+						RUNE</label>
 					<label>
-					<input
-						type="radio"
-						name="baseAsset"
-						value="maya.cacao"
-						onChange={() => handleBaseTokenSelect('maya.cacao')}
-						checked={baseAsset?.identifier.toLowerCase() === 'maya.cacao'}
-					/>
-					 CACAO</label>
+						<input
+							type="radio"
+							name="baseAsset"
+							value="maya.cacao"
+							onChange={() => handleBaseTokenSelect('maya.cacao')}
+							checked={baseAsset?.identifier.toLowerCase() === 'maya.cacao'}
+						/>
+						CACAO</label>
 
-					 	
-				<select value={liquidityMode} onChange={e => setLiquidityMode(e.target.value)} disabled={swapInProgress}>
-					<option value="sym">Symmetrical</option>
-					<option value="asym">Asymmetrical</option>
-				</select>
+
+					<select value={liquidityMode} onChange={e => setLiquidityMode(e.target.value)} disabled={swapInProgress}>
+						<option value="sym">Symmetrical</option>
+						<option value="asym">Asymmetrical</option>
+					</select>
 				</div>
 
 				<div className="token-select">
-					<button onClick={() => !swapInProgress && openTokenDialog(setAsset, 'asset')} className="select-button" style={{ minWidth: '130px', minHeight: '75px',paddingLeft: '15px' }}>
+					<button onClick={() => !swapInProgress && openTokenDialog(setAsset, 'asset')} className="select-button" style={{ minWidth: '130px', minHeight: '75px', paddingLeft: '15px' }}>
 						{asset ? (
 							<span className="token">
 								<img src={asset.logoURI} alt={asset.name} style={{ width: '20px', height: '20px', marginRight: '5px' }} />
@@ -967,24 +1042,25 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 				<label>Asset Amount</label>
 				<input type="number" value={assetAmount} onChange={e => setAssetAmount(e.target.value)} disabled={swapInProgress} />
 			</div>
-				<div style={{ maxWidth: '100%', flexGrow: 1 }}>
-					<DataTable
-						data={positions}
-						columns={columns}
-						dense
-						customStyles={customStyles}
-						expandOnRowClicked
-						expandableRows
-						expandableRowsComponent={ExpandedComponent}
-						height="100%"
-						width="100%"
-						responsive
-						striped
-						defaultSortFieldId={1}
-					/>
-				</div>
+			<div>Remember to click calculate or your liquidity may be added wrong!</div>
+			<div style={{ maxWidth: '100%', flexGrow: 1 }}>
+				<DataTable
+					data={positions}
+					columns={columns}
+					dense
+					customStyles={customStyles}
+					expandOnRowClicked
+					expandableRows
+					expandableRowsComponent={ExpandedComponent}
+					height="100%"
+					width="100%"
+					responsive
+					striped
+					defaultSortFieldId={1}
+				/>
+			</div>
 
-			<div className="infobox" style={{textAlign:"right", borderStyle:'inset'}}>Affiliate Fee 0.1%</div>
+			<div className="infobox" style={{ textAlign: "right", borderStyle: 'inset' }}>Affiliate Fee 0.1%</div>
 
 			{tokenChooserDialog}
 		</div>
