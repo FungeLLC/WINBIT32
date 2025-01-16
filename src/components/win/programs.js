@@ -27,7 +27,7 @@ import JupiterSwapComponent from "../apps/winbit32/solswap/JupiterSwapComponent"
 import VTools from "../apps/sectools/vtools/VTools";
 import RareSats from "../apps/RareSats";
 import ProgramGroup from "../apps/ProgGroup";
-import Swap123 from "../apps/winbit32/Swap123";
+import ExoraSwapComponent from "../apps/winbit32/Exora";
 
 export const getPrograms = () => {
 	return [
@@ -256,10 +256,10 @@ export const getPrograms = () => {
 								},
 								// {
 								// 	progID: 1,
-								// 	title: "Evora Swap",
+								// 	title: "Exora Swap",
 								// 	icon: "🔢",
-								// 	progName: "evora.exe", // Added name for "File Manager"
-								// 	component: Swap123,
+								// 	progName: "exora.exe", // Added name for "File Manager"
+								// 	component: ExoraSwapComponent,
 								// 	defaultOpen: false,
 								// 	maximized: true,
 								// 	initialPosition: {

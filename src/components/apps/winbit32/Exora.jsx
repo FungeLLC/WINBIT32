@@ -43,7 +43,7 @@ const initialRowState = {
   progressText: ''
 };
 
-const Swap123 = ({ providerKey, windowId, programData, onOpenWindow }) => {
+const Exora = ({ providerKey, windowId, programData, onOpenWindow }) => {
   const { skClient, tokens, wallets } = useWindowSKClient(providerKey);
   const [rows, setRows] = useState([]);
 
@@ -198,4 +198,4 @@ const Swap123 = ({ providerKey, windowId, programData, onOpenWindow }) => {
   );
 };
 
-export default Swap123;
+export default Exora;
