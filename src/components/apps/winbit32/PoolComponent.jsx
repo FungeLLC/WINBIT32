@@ -959,7 +959,7 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 
 	const columns = [
 
-		{ name: 'Asset', selector: row => row.asset.ticker, sortable: true },
+		{ name: 'Asset', selector: row => row.asset.ticker, sortable: true, cell: row => <div>{row.asset.chain}:{row.asset.ticker}</div> },
 		{ name: 'Asset Amount', selector: row => row.asset.bigIntValue, sortable: true, cell: row => <div>{assetToFloat(row.asset)}</div> },
 		{ name: 'Base', selector: row => row.base.ticker, sortable: true },
 		{ name: 'Base Amount', selector: row => row.base.bigIntValue, sortable: true, cell: row => <div>{assetToFloat(row.base)}</div> },
@@ -1027,7 +1027,7 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 						{asset ? (
 							<span className="token">
 								<img src={asset.logoURI} alt={asset.name} style={{ width: '20px', height: '20px', marginRight: '5px' }} />
-								<span><b>{asset.ticker}</b> {asset.name}</span>
+								<span><b>{asset.ticker}</b> {asset.name} on {asset.chain}</span>
 							</span>
 						) : (
 							<span className="token">Select Asset...</span>
