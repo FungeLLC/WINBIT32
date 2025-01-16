@@ -22,6 +22,17 @@
      
 }
 
+
+.edit-mode {
+  max-width: 600px;
+  padding: 10px;
+}
+
+.edit-mode .swap-form {
+  border: none;
+  box-shadow: none;
+}
+
 .field-group {
   display: flex;
   align-items: center;

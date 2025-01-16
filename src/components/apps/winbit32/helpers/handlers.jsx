@@ -765,7 +765,7 @@ export const delayedParseIniData = (
 	}, 1000);
 };
 
-const parseIniData = (
+export const parseIniData = (
 	data,
 	setSwapFrom,
 	setSwapTo,

@@ -550,10 +550,6 @@ const PoolComponent = ({ providerKey, windowId, programData }) => {
 					};
 				}
 			}
-			if (assetValue.assetValue.chain === 'BASE' && assetValue.assetValue.address === undefined) {
-				// assetValue.assetValue.address = '0x0000000000000000000000000000000000000000';
-				assetValue.assetValue.symbol = 'ETH-0x0000000000000000000000000000000000000000';
-			}
 
 
 			const liquidityParams = {
