@@ -349,7 +349,7 @@ export function amountInBigInt(amount, decimals) {
 export function amountInFloat(bigIntValue, decimals) {
 	//bigIntValue is bigint
 	//convert to float
-	console.log('bigIntValue', bigIntValue, decimals);
+	// console.log('bigIntValue', bigIntValue, decimals);
 	//convert amount to bigint with decimals
 	const float = parseFloat(bigIntValue) / 10 ** decimals;
 
