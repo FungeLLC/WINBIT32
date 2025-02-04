@@ -9,7 +9,7 @@ import { saveAs } from 'file-saver';
 import MenuBar from '../../win/MenuBar';
 import { Chain, FeeOption } from '@swapkit/sdk';
 import { getQuotes } from './helpers/quotes';
-import { chooseWalletForToken, handleSwap, handleTokenSelect, updateDestinationAddress, delayedParseIniData } from './helpers/handlers';
+import { chooseWalletForToken, handleSwap, handleTokenSelect, updateDestinationAddress, delayedParseIniData, parseIniData } from './helpers/handlers';
 import { checkTxnStatus, formatBalance } from './helpers/transaction';
 import { handleApprove } from './helpers/handlers';
 import DialogBox from '../../win/DialogBox';
@@ -43,6 +43,7 @@ const SwapComponent = ({
 	metadata,
 	hashPath,
 	sendUpHash,
+	windowA
 }) => {
 	const { skClient, tokens, wallets, chainflipBroker } = useWindowSKClient(providerKey);
 	const { isRandomPhrase } = programData;
@@ -91,7 +92,7 @@ const SwapComponent = ({
 	const onSave = metadata.onSave;
 	const onCancel = metadata.onCancel;
 
-	console.log('Swap component metadata ini:', metadata);
+	// console.log('Swap component metadata ini:', metadata);
 
 	const txnTimerRef = useRef(txnTimer);
 
@@ -196,7 +197,7 @@ swap_count=${streamingNumSwaps}
 
 
 	useEffect(() => {
-		if (iniData) {
+		if (iniData && !editMode) {
 			//convert to query string style and sendUpHash
 			const lines = iniData.split('\n');
 			let query = '';
@@ -352,9 +353,22 @@ swap_count=${streamingNumSwaps}
 
 	useEffect(() => {
 		if(initialIniData && initialIniData.length > 0){
+			setTextareaActive(true);
+
 			console.log('Initial INI data:', initialIniData);
 			setIniData(initialIniData);
-			setInitialIniData('');
+
+			delayedParseIniData(initialIniData, setIniData, setSwapFrom, setSwapTo, setAmount, setDestinationAddress, setFeeOption, setSlippage, setSelectedRoute, setRoutes, routes, tokens,
+				setManualStreamingSet,
+				setStreamingInterval,
+				setStreamingNumSwaps);
+
+
+			setTimeout(() => {
+				setTextareaActive(false);
+				setInitialIniData('');
+			}, 1000);
+
 		}
 		else if (hashPath && hashPath.length > 0 && tokens && tokens.length > 0 && !metadata.swapFrom && !metadata.swapTo) {
 			setTextareaActive(true);
@@ -651,8 +665,27 @@ swap_count=${streamingNumSwaps}
 
 
 	const handleSaveClick = () => {
-		onSave?.(iniData);
+		const oRoute =
+			selectedRoute === "optimal" && routes.length > 0
+				? routes.find(({ optimal }) => optimal) || routes[0]
+				: routes.find((route) => route.providers.join(", ") === selectedRoute);
+
+		if (!onSave || onSave?.(iniData, { route: oRoute, expectedOut: oRoute?.expectedBuyAmount, 
+			swapFrom, swapTo, amount, destinationAddress, slippage, feeOption, selectedRoute, routes, isStreamingSwap,
+			 streamingInterval, streamingNumSwaps })) {
+				//close the window
+				windowA?.close();
+		}
+
 	};
+
+	const handleCancelClick = () => {
+		onCancel?.();
+		//close the window
+		windowA.close();
+	}
+
+
 
 	return (
 
@@ -661,7 +694,7 @@ swap_count=${streamingNumSwaps}
 				{editMode ? (
 					<EditModeButtons>
 						<button onClick={handleSaveClick}>Save</button>
-						<button onClick={onCancel}>Cancel</button>
+						<button onClick={handleCancelClick}>Cancel</button>
 					</EditModeButtons>
 				) : (
 					

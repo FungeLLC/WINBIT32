@@ -1,13 +1,11 @@
 import { AssetValue } from "@swapkit/sdk";
-import { getQuoteFromChainflip, getQuoteFromSwapKit } from "./quote";
+import { getQuoteFromChainflip, getQuoteFromSwapKit, getQuoteFromThorchainDirect } from "./quote";
 import { amountInBigNumber } from "./quote";
 import { SwapKitApi } from "@swapkit/api";
 import bigInt from "big-integer";
 import { getQuoteFromMaya } from "./maya";
 import { forEach } from "lodash";
 import { getAssetValue } from "./quote";
-
-
 
 export const getQuotes = async (
 	oSwapFrom,
@@ -37,7 +35,8 @@ export const getQuotes = async (
 	const thisDestinationAddress =
 		destinationAddress || chooseWalletForToken(swapTo, wallets)?.address;
 		//clone oSwapFrom
-	let swapFrom = JSON.parse(JSON.stringify(oSwapFrom));
+
+	let swapFrom = Object.assign({}, oSwapFrom);
 
 	const currentSelectedRoute = selectedRoute || "optimal";
 
@@ -118,9 +117,61 @@ export const getQuotes = async (
 
 		const quoteFuncs = quotesParams.map((quoteParams) => {
 			console.log("quoteParams", quoteParams);
-			// if(quoteParams.providers.includes("MAYACHAIN") || quoteParams.providers.includes("MAYACHAIN_STREAMING")){
-			// 	return () => getQuoteFromMaya(quoteParams, swapTo, swapFrom);
-			// }
+			if (quoteParams.providers.some(p => p === "THORCHAIN" || p === "THORCHAIN_STREAMING")) {
+				// Create two separate Thorchain quote requests
+				return async () => {
+					const [normalQuote, streamingQuote] = await Promise.all([
+						// Normal quote
+						getQuoteFromThorchainDirect({
+							...quoteParams,
+							streaming_interval: 0,
+							streaming_quantity: 0
+						}),
+						// Streaming quote
+						getQuoteFromThorchainDirect({
+							...quoteParams,
+							streaming_interval: 1,
+							streaming_quantity: 0 // Let THORChain determine optimal chunks
+						})
+					]);
+
+					 // Calculate USD values for each route using total amount
+					 const calculateUSDValue = (route) => {
+						const totalOutput = Number(route.expectedBuyAmount);
+						// Total fees in the output asset
+						const totalFees = (Number(route.fees.affiliate) + 
+										 Number(route.fees.outbound) + 
+										 Number(route.fees.liquidity)) / 1e8;
+						
+						const totalValue = totalOutput + totalFees;
+						// Get USD price from thorchain quote data
+						const assetPrice = route.thorchainQuote.fees?.asset_price || 1;
+						return totalValue * assetPrice;
+					  };
+
+					// Combine both quotes into one response
+					return {
+						quoteId: normalQuote.quoteId,
+						routes: [
+							{
+								...normalQuote.routes[0],
+								providers: ["THORCHAIN"],
+								expectedOutputUSD: calculateUSDValue(normalQuote.routes[0])
+							},
+							{
+								...streamingQuote.routes[0],
+								providers: ["THORCHAIN_STREAMING"],
+								streamingSwap: true,
+								expectedOutputUSD: calculateUSDValue(streamingQuote.routes[0])
+							}
+						]
+					};
+				};
+			}
+			// Remove THORCHAIN from SwapKit providers
+			quoteParams.providers = quoteParams.providers.filter(p => 
+				!p.includes("THORCHAIN")
+			);
 			return () => getQuoteFromSwapKit(quoteParams);
 		});
 
@@ -360,6 +411,15 @@ const processSwapKitRoutes = (response, swapToDecimals) => {
 	const quoteid = response.quoteId;
 	routes.forEach((route) => {
 		route.quoteId = quoteid;
+		
+		// Handle both array and object fee structures
+		if (Array.isArray(route.fees)) {
+			route.gasFee = route.gasFee || route.fees.find((fee) => fee.type === "inbound")?.amount;
+		} else if (typeof route.fees === 'object') {
+			route.gasFee = route.fees?.gas?.estimated || route.gasFee;
+		}
+		
+		// Rest of the memo handling
 		if (route.memo && (route.providers.includes("MAYACHAIN") || route.providers.includes("MAYACHAIN_STREAMING"))){
 			route.originalMemo = route.memo;
 			const parts = route.memo.split(":");

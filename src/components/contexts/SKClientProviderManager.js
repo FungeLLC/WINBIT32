@@ -144,6 +144,18 @@ const reducer = (state, action) => {
 				...state,
 				wallets: { ...state.wallets, [action.key]: [] },
 			};
+		case "UPDATE_WALLET_BALANCE":
+			return {
+				...state,
+				wallets: {
+					...state.wallets,
+					[action.key]: state.wallets[action.key].map(w => 
+						w.chain === action.chain 
+							? { ...w, balance: action.balance }
+							: w
+					)
+				}
+			};
 		default:
 			return state;
 	}
@@ -163,7 +175,7 @@ export const SKClientProviderManager = ({ children }) => {
 			const client = createSwapKit({
 				config: {
 					blockchairApiKey: "A___UmqU7uQhRUl4" + "UhNzCi5LOu81LQ1T",
-					covalentApiKey: "cqt_rQygB4xJkdv" + "m8fxRcBj3MxBhCHv4",
+					covalentApiKey: "cqt_rQygB4xJkdvm8fxRcBj3MxBhCHv4",
 					ethplorerApiKey: "EK-8ftjU-8Ff" + "7UfY-JuNGL",
 					walletConnectProjectId: "dac706e68e589ffa15fed9bbccd825f7",
 
@@ -197,6 +209,7 @@ export const SKClientProviderManager = ({ children }) => {
 					OP: "https://api-optimism-mainnet-archive.dwellir.com/204dd906-d81d-45b4-8bfa-6f5cc7163dbc",
 					MATIC:
 						"https://api-polygon-mainnet-full.dwellir.com/204dd906-d81d-45b4-8bfa-6f5cc7163dbc",
+					SOL: "https://rpc.ankr.com/solana/fb4077f99c50c07e75aec9cfcebfaf971cb3fce319a807e823943f962dc04e7d",
 					// XRD: "https://radix-mainnet.rpc.grove.city/v1/456359ff",
 					// Radix: "https://radix-mainnet.rpc.grove.city/v1/456359ff",
 				},
@@ -473,6 +486,24 @@ export const SKClientProviderManager = ({ children }) => {
 		}
 	}, []);
 
+	const updateWalletBalance = useCallback(async (key, chain) => {
+		const client = state.clients[key];
+		if (!client) return;
+	
+		try {
+
+			const balance = await client.getBalance(chain, true);
+			dispatch({ 
+				type: "UPDATE_WALLET_BALANCE", 
+				key, 
+				chain, 
+				balance 
+			});
+		} catch (error) {
+			console.error(`Error updating balance for ${chain}:`, error);
+		}
+	}, [state.clients]);
+
 	useEffect(() => {
 		loadProvidersAndTokens();
 	}, [loadProvidersAndTokens]);
@@ -495,6 +526,7 @@ export const SKClientProviderManager = ({ children }) => {
 				providers: state.providers,
 				tokens: state.tokens,
 			}),
+			updateWalletBalance,
 		}),
 		[
 			createOrSelectSKClient,
@@ -510,6 +542,7 @@ export const SKClientProviderManager = ({ children }) => {
 			state.tokens,
 			disconnect,
 			chainflipBroker,
+			updateWalletBalance,
 		]
 	);
 
@@ -530,6 +563,7 @@ export const useWindowSKClient = (key) => {
 		addWallet,
 		resetWallets,
 		chainflipBroker,
+		updateWalletBalance,
 	} = useContext(SKClientContext);
 	const skClient = useMemo(
 		() => createOrSelectSKClient(key),
@@ -772,6 +806,25 @@ export const useWindowSKClient = (key) => {
 		[connectChains, setChains, skClient]
 	);
 
+	const refreshBalance = useCallback(async (chain) => {
+		// Find the wallet for this chain
+		const wallet = wallets.find(w => w.chain === chain);
+		if (!wallet) return;
+	  
+		try {
+		  // Use the wallet's own balance checking method instead of SKClient
+		  const balance = await wallet.getBalance(wallet.address);
+		  
+		  addWallet(key, { 
+			...wallet, 
+			chain: chain.toString(),
+			balance: balance
+		  });
+	  
+		} catch (error) {
+		  console.error(`Error refreshing ${chain} balance:`, error);
+		}
+	  }, [wallets, addWallet, key]);
 
 	return {
 		skClient,
@@ -788,6 +841,7 @@ export const useWindowSKClient = (key) => {
 		tokens,
 		connect,
 		disconnect: () => disconnect(key),
+		refreshBalance,
 	};
 };
 

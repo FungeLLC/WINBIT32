@@ -10,6 +10,7 @@ import { Toaster } from "react-hot-toast";
 import { StateSetterProvider } from "./components/contexts/SetterContext";
 import "./styles/win95.css";
 import { AssetValue } from "@swapkit/helpers";
+import Matrix from "./components/win/Matrix";
 
 const programs = getPrograms();
 
@@ -29,6 +30,8 @@ const App = () => {
 	const [loaded, setLoaded] = useState(false);
 	const [license, setLicense] = useState(false);
 	const [appData, setAppData] = useState({});
+	const [showMatrix, setShowMatrix] = useState(false);
+
 	const hashPathRef = useRef(null);
 
 	console.log('window', window);
@@ -129,9 +132,9 @@ const App = () => {
 		setAppDataKey("setAppDataKey", setAppDataKey);
 		setAppDataKey("license", license);
 		setAppDataKey("setLicense", setLicense);
-
+		setAppDataKey("setShowMatrix", setShowMatrix);
 	}
-	, [setAppData, license]);
+	, [setAppData, license, setShowMatrix]);
 
 
 	const { embedMode } = appData || {};
@@ -146,32 +149,34 @@ const App = () => {
 				{showDOSPrompt ? (
 					<DOSPrompt />
 				) : (
-					<>{hashPathRef.current !== null && (
-						<div
-							style={loaded ? { zIndex: 999 } : { zIndex: 0 }}
-							className="full-desktop"
-							id="desktop">
-							<WindowDataProvider>
-								<WindowManager
-									programs={programs}
-									windowName={"desktop"}
-									setStateAndSave={setStateAndSave}
-									providerKey={"desktop"}
-									handleOpenArray={[]}
-									handleExit={handleExit}
-									sendUpHash={sendUpHash}
-									windowId={"desktop"}
-									hashPath={hashPathRef.current}
-									appData={appData}
-								/>
-							</WindowDataProvider>
-						</div>
-					)}
+					<>
+						{hashPathRef.current !== null && (
+							<div
+								style={loaded ? { zIndex: 999 } : { zIndex: 0 }}
+								className="full-desktop"
+								id="desktop">
+								<WindowDataProvider>
+									<WindowManager
+										programs={programs}
+										windowName={"desktop"}
+										setStateAndSave={setStateAndSave}
+										providerKey={"desktop"}
+										handleOpenArray={[]}
+										handleExit={handleExit}
+										sendUpHash={sendUpHash}
+										windowId={"desktop"}
+										hashPath={hashPathRef.current}
+										appData={appData}
+									/>
+								</WindowDataProvider>
+							</div>
+						)}
 						{loaded ? (
-							!embedMode &&
-							<>
-								<WelcomeWarning onExit={handleExit} />
-							</>
+							!embedMode && (
+								<>
+									<WelcomeWarning onExit={handleExit} />
+								</>
+							)
 						) : (
 							<div
 								className="loading_overlay"
@@ -196,7 +201,6 @@ const App = () => {
 					containerStyle={{
 						zIndex: 999000000000000000,
 					}}
-
 					toastOptions={{
 						// Define default options
 						className: "toast",
@@ -206,6 +210,7 @@ const App = () => {
 						},
 					}}
 				/>
+				<Matrix show={showMatrix} onHide={() => setShowMatrix(false)} />
 			</StateSetterProvider>
 		</SKClientProviderManager>
 	);

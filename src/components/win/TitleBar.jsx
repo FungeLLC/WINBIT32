@@ -20,6 +20,7 @@ const TitleBar = ({
 	embedable,
 	embeded,
 	metadata,
+	windowA,
 	...rest
 }) => {
 	// console.log('TitleBar', title, appData, rest);
@@ -150,7 +151,7 @@ const TitleBar = ({
 					</div>
 				}
 				<div className='title-text' onDoubleClick={handleMaximize} onClick={onClick}>
-					{title}{license && <> &nbsp; ᛝ</>}
+					{title}{license && <> &nbsp; ᛝ</>}{windowA?.titleNote && <>({windowA.titleNote})</>}
 				</div>
 
 

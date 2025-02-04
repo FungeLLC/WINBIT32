@@ -16,15 +16,12 @@ const WelcomeWarning = ({ onExit }) => {
 	};
 
 	const dialogContent = (
-		<div className='welcome-warning'>
+		<div className='welcome-warning' style={{ maxWidth: '400px' }}>
+			<p>Welcome to <b>WINBIT32.COM</b>, This is your final warning...</p>
 			<p>This site is just a tool, no Warranty given or implied.</p>
-			<p>This site <b>Does not</b> use cookies. It will <b>not</b> remember you.</p>
-			<p>No Secure information is sent to a server or leaves your browser</p>
-			<p>It <b>will</b> let you do stupid things that will lose money.</p>
-			<p>Your private key, phrase, or QR code is the only way to access funds.</p>
-			<p>Lose it, and you <b>will lose your money.</b></p>
-			<p>Give it to someone else, and they <b>will steal your money.</b></p>
-			<p>Our support will never ask for it and cannot provide it.<br />Reload and it will be gone.</p>
+			<p>Like a hammer lets you build cathedrals or hit your own thumb, it will not ask if you are sure first.</p>
+			<p>This site <b>Does not</b> use cookies. It will <b>not</b> remember you or your keys.</p>
+			<p>Store any private keys/phrases safely, we cannot recover them</p>
 			<p>Do you agree to take responsibility for yourself?</p>
 		</div>
 	);
@@ -38,7 +35,7 @@ const WelcomeWarning = ({ onExit }) => {
 		<div>
 			{showDialog && (
 				<DialogBox
-					title="Windows Setup"
+					title="Setup"
 					content={dialogContent}
 					modal={true} // To dim the background
 					icon="stop" // Icon type

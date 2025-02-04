@@ -18,14 +18,50 @@ export const formatNumber = (number, precision = 8) => {
 	return Math.floor(number);
 };
 
+export const formatUSDValue = (value) => {
+  if (!value && value !== 0) return '';
+  return `($${formatNumber(value, 2)})`;
+};
 
-export const formatBalance = (bigIntValue, decimals, precision = 8) => {
-	const factor = bigInt(10).pow(decimals);
-	const integerPart = bigIntValue.divide(factor);
-	const fractionalPart = bigIntValue.mod(factor).toJSNumber() / factor.toJSNumber();
-	const balance = integerPart.toJSNumber() + fractionalPart;
+export const formatBalanceWithUSD = (balance, usdValue) => {
+  if (!balance) return '0';
+  const formattedBalance = formatBalance(balance);
+  const formattedUSD = formatUSDValue(usdValue);
+  return `${formattedBalance} ${formattedUSD}`;
+};
 
-	return formatNumber(balance, precision);
+export const formatBalance = (balance) => {
+  if (!balance) return '0';
+
+  // Handle array of balances
+  if (Array.isArray(balance)) {
+    return formatNumber(
+      balance.reduce((sum, b) => sum + (parseFloat(b.amount) || 0), 0)
+    );
+  }
+
+  // Handle BigInt value
+  if (typeof balance === 'bigint') {
+    return formatNumber(Number(balance) / 1e8);
+  }
+
+  // Handle object with balance field
+  if (balance.balance) {
+    return formatNumber(parseFloat(balance.balance));
+  }
+
+  // Handle object with amount property
+  if (balance.amount !== undefined) {
+    return formatNumber(parseFloat(balance.amount));
+  }
+
+  // Handle decimal & decimalMultiplier
+  if (balance.decimal !== undefined && balance.bigIntValue !== undefined) {
+    return formatNumber(Number(balance.bigIntValue) / Math.pow(10, balance.decimal));
+  }
+
+  // Handle simple number
+  return formatNumber(balance);
 };
 
 

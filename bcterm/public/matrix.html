@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="UTF-8" />
+	<title>Continuous Matrix Bitcoin Feed</title>
+	<style>
+		html,
+		body {
+			margin: 0;
+			padding: 0;
+			height: 100%;
+			background-color: #000;
+			/* black background for matrix effect */
+		}
+
+		body {
+			display: flex;
+			flex-direction: column;
+			font-family: monospace;
+			color: #0f0;
+		}
+
+		#status {
+			margin: 0.5em;
+			color: #0f0;
+		}
+
+		#matrix-container {
+			position: relative;
+			flex: 1;
+			/* fill remaining vertical space */
+			overflow: hidden;
+			/* hide lines if they go outside */
+			background: #000;
+		}
+
+		/* Each vertical "rain" line (for one chunk) */
+		.matrix-line {
+			position: absolute;
+			display: flex;
+			flex-direction: column;
+			opacity: 1;
+			z-index: 2;
+			/* new lines appear above older ones */
+			transition: opacity 1s ease-out;
+			/* fade-out transition */
+		}
+
+		/* Each character in that line */
+		.matrix-char {
+			color: #0f0;
+			font-family: monospace;
+			font-size: 18px;
+			white-space: pre;
+			text-shadow: 0 0 2px #0f0;
+			opacity: 0.8;
+			transition: all 0.2s;
+		}
+
+		/* Glowing effect on the "current" typed char */
+		.matrix-char.glow {
+			color: #afffaa;
+			text-shadow: 0 0 10px #afffaa;
+			opacity: 1;
+		}
+	</style>
+</head>
+
+<body>
+	<div id="status">Initialising matrix feed...</div>
+	<div id="matrix-container"></div>
+
+	<script>
+		const statusEl = document.getElementById('status');
+		const container = document.getElementById('matrix-container');
+
+		/* We’ll keep blocks in a queue so we only type one block at a time */
+		let blockQueue = [];
+		let isTyping = false;
+		let currentBlockHash = null;
+
+		/* We'll display an entire block in ~10 minutes.
+		   So total block length => 600_000 ms => ms per char. */
+		const BLOCK_TYPING_DURATION_MS = 60_000;  // 10 minutes
+
+		/* We'll poll for new blocks every 30 seconds (adjust as you like). */
+		setInterval(fetchNewBlock, 50_000);
+		/* Also fetch once at page load. */
+		fetchNewBlock();
+
+		/**
+		 * Fetch latest block from /api/latestblockhex
+		 */
+		async function fetchNewBlock() {
+			try {
+				const res = await fetch('https://bcterm.winbit32.com/api/latestblockhex');
+				if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+				const data = await res.json();
+				if (!data.blockHash || !data.blockHex) {
+					statusEl.textContent = 'No block data yet...';
+					return;
+				}
+				data.blockHash = data.blockHash.trim() + ':' + data.minuteIndex;
+
+
+				// If it's a new block we haven't typed yet, queue it
+				if (data.blockHash !== currentBlockHash &&
+					!blockQueue.some(b => b.hash === data.blockHash)) {
+
+					blockQueue.push({
+						hash: data.blockHash,
+						hex: data.blockHex
+					});
+					statusEl.textContent = `New block queued: ${data.blockHash}`;
+
+					if (!isTyping) {
+						typeNextBlock();
+					}
+				} else {
+					statusEl.textContent = 'No new block found this poll...';
+				}
+			} catch (err) {
+				console.error('Error fetching block:', err);
+				statusEl.textContent = `Error fetching block: ${err.message}`;
+			}
+		}
+
+		/**
+		 * Pulls the next block from the queue and types it matrix-style
+		 */
+		async function typeNextBlock() {
+			if (blockQueue.length === 0) {
+				isTyping = false;
+				return;
+			}
+			isTyping = true;
+
+			const { hash, hex } = blockQueue.shift();
+			currentBlockHash = hash;
+			statusEl.textContent = `Typing block: ${hash}`;
+
+			// We'll type the entire block in about 10 minutes
+			const totalChars = hex.length;
+			const msPerChar = BLOCK_TYPING_DURATION_MS / totalChars;
+
+			// We'll break the block hex into random chunks [4..8]
+			const chunks = splitIntoRandomChunks(hex);
+
+			for (let i = 0; i < chunks.length; i++) {
+				const chunk = chunks[i];
+				// Type the chunk as a vertical line at random coords
+				await typeChunk(chunk, msPerChar);
+				// small delay between chunks so they don't appear simultaneously
+				await sleep(msPerChar * 2);
+			}
+
+			statusEl.textContent = `Finished block: ${hash}`;
+			typeNextBlock(); // Move on to the next block
+		}
+
+		/**
+		 * Splits hex string into random chunks of length 4..8
+		 */
+		function splitIntoRandomChunks(hex) {
+			let i = 0;
+			const chunks = [];
+			while (i < hex.length) {
+				const size = Math.floor(Math.random() * 5) + 4; // 4..8
+				const chunk = hex.slice(i, i + size);
+				i += size;
+				chunks.push(chunk);
+			}
+			return chunks;
+		}
+
+		/**
+		 * Types out a chunk vertically at random X,Y in the container,
+		 * character by character, each with a glow. Then we fade it out.
+		 */
+		async function typeChunk(chunk, msPerChar) {
+			// create a new vertical line
+			const lineEl = document.createElement('div');
+			lineEl.className = 'matrix-line';
+
+			// random x and y
+			const cWidth = container.clientWidth;
+			const cHeight = container.clientHeight;
+			const randX = Math.floor(Math.random() * (cWidth - 20));
+			const randY = Math.floor(Math.random() * (cHeight - 20));
+
+			lineEl.style.left = randX + 'px';
+			lineEl.style.top = randY + 'px';
+
+			container.appendChild(lineEl);
+
+			// type each char
+			for (let i = 0; i < chunk.length; i++) {
+				const charEl = document.createElement('div');
+				charEl.className = 'matrix-char glow';
+				charEl.textContent = chunk[i];
+				lineEl.appendChild(charEl);
+
+				// un-glow the previous char
+				if (i > 0) {
+					const prevChar = lineEl.children[i - 1];
+					prevChar.classList.remove('glow');
+				}
+				await sleep(msPerChar);
+			}
+
+			// remove glow from the last char
+			if (lineEl.lastChild) {
+				lineEl.lastChild.classList.remove('glow');
+			}
+
+			// wait 2 seconds, then fade out and remove from DOM
+			setTimeout(() => {
+					lineEl.style.opacity = '0'; // triggers CSS transition
+				}, 2000);
+
+			setTimeout(() => {
+				if (container.contains(lineEl)) {
+					container.removeChild(lineEl);
+				}
+			}, 5000);
+		}
+
+		/**
+		 * Simple sleep utility
+		 */
+		function sleep(ms) {
+			return new Promise(resolve => setTimeout(resolve, ms));
+		}
+	</script>
+</body>
+
+</html>

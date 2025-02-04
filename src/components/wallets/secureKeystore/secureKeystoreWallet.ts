@@ -8,6 +8,7 @@ import {
 	derivationPathToString,
 	ensureEVMApiKeys,
 	setRequestClientConfig,
+	ChainToChainId
 } from "@swapkit/helpers";
 import { decryptFromKeystore, Keystore } from "@swapkit/wallet-keystore";
 import { mnemonicToSeedSync } from 'bip39';
@@ -32,6 +33,7 @@ import { addDialogOptions } from "./dialogOptions"
 import { Wallet as ethersWallet, Wallet } from "ethers";
 import { getNetwork } from "@swapkit/toolbox-utxo";
 import * as secp256k1 from "@bitcoinerlab/secp256k1";
+import { covalentApi } from "./covalentApi.ts";
 
 
 const derivationPathAccountPositions = {
@@ -226,10 +228,12 @@ const getWalletMethodsForChain = async ({
 		case Chain.Polygon: {
 			const keys = ensureEVMApiKeys({ chain, covalentApiKey, ethplorerApiKey });
 			const provider = getProvider(chain, rpcUrl);
+			const chainId = ChainToChainId(Chain);
+			const covalentApi = covalentApi({apiKey: covalentApiKey, chainId})
 			const wallet = isPK(phrase)
 				? new ethersWallet(phrase).connect(provider)
 				: HDNodeWallet.fromPhrase(phrase).connect(provider);
-			const params = { ...keys, api, provider, signer: wallet };
+			const params = { ...keys, api: covalentApi, provider, signer: wallet };
 
 			address = wallet.address;
 

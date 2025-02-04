@@ -9,7 +9,19 @@ const Taskbar = ({ minimizedWindows, onRestore }) => {
 					key={index}
 					className="program-icon"
 					style={{ width: '100px', padding: '10px', textAlign: 'center' }}
-					onClick={() => onRestore(program)} // Handle icon click to open a window
+					onClick={(e) => {
+						e.preventDefault();
+						e.stopPropagation();
+						onRestore(program)
+					}
+					}
+					onDoubleClick={(e) => {
+						e.preventDefault();
+						e.stopPropagation();
+						onRestore(program)
+					} // Handle double click to restore window
+					}
+					 // Handle icon click to open a window
 				>
 					<div style={{ fontSize: '2em' }}>{program.icon}</div> {/* Display the icon */}
 					<div>{program.title}</div> {/* Display the program name */}

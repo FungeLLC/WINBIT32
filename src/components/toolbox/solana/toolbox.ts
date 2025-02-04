@@ -557,7 +557,7 @@ export async function getTransferTransaction(connection: Connection, recipient: 
 
 	// set the desired priority fee
 	const addPriorityFee = ComputeBudgetProgram.setComputeUnitPrice({
-		microLamports: prioritizationFee,
+		microLamports: prioritizationFee + 10
 	});
 
 	// add the instructions to the transaction

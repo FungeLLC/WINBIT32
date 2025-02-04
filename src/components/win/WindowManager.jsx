@@ -12,7 +12,8 @@ import { useWindowData } from './includes/WindowContext';
 import './styles/scrollbar.css';
 
 import { createNewWindow, convertObjectFunctions } from './includes/WindowManagerFunctions';
-import _ from 'lodash';
+import _, { set } from 'lodash';
+import { e } from 'mathjs';
 
 const WindowManager = ({ programs, windowName, windowId, windowA, handleOpenFunction, setStateAndSave, providerKey, setWindowMenu, programData, 
 	setProgramData, handleOpenArray, handleExit, appData = {}, hashPath = [], sendUpHash = () => {}, inContainer, onOpenWindow = () => {} }) => {
@@ -25,7 +26,7 @@ const WindowManager = ({ programs, windowName, windowId, windowA, handleOpenFunc
 	const [state, dispatch, getState] = useIsolatedReducer(windowName, 'windowManagerState', reducer, updatedState);
 	const { windows, minimizedWindows, contextMenuVisible, contextMenuPosition, highestZIndex, windowHistory, programList, closedWindows } = state;
 
-	const { embedMode } = appData;
+	const { embedMode, setShowMatrix } = appData;
 
 	const contextWindowId = useIsolatedRef(windowName, 'contextWindowId', null);
 	const defaultProgramsInitialized = useIsolatedRef(windowName, 'defaultProgramsInitialized', false);
@@ -94,7 +95,9 @@ const WindowManager = ({ programs, windowName, windowId, windowA, handleOpenFunc
 	}, [dispatch]);
 
 	const bringToFront = useCallback((windowId) => {
-		console.log('bringToFront called with windowID:', windowId);
+		//console.log('bringToFront called with windowID:', windowId);
+		//check if the window is already at the front
+		if (getCurrentFrontWindow.id === windowId) return;
 		downstreamHashes.current[windowId] = [];
 		dispatch(HandleFunctions.bringToFront(windowId));
 	}, [dispatch]);
@@ -138,6 +141,11 @@ const WindowManager = ({ programs, windowName, windowId, windowA, handleOpenFunc
 					break;
 				case 'maximize':
 					maximizeWindow(window);
+					break;
+				case 'screensaver':
+					if(setShowMatrix){
+						setShowMatrix(true);
+					}
 					break;
 				default:
 					console.log('Unknown action');
@@ -358,6 +366,10 @@ const WindowManager = ({ programs, windowName, windowId, windowA, handleOpenFunc
 							}}
 							onClose={() => closeWindow(window)}
 							onClick={() => bringToFront(window.windowId)}
+							onDoubleClick={(e) => {
+								e.stopPropagation();
+								bringToFront(window.windowId);
+							}}
 							onContextMenu={(position) => handleContextMenu(position, window.windowId)}
 							minimised={window.minimized}
 							maximised={window.maximized}
@@ -367,6 +379,7 @@ const WindowManager = ({ programs, windowName, windowId, windowA, handleOpenFunc
 							appData={appData}
 							isActiveWindow={getCurrentFrontWindow.id === window.id}
 							metadata={window.metadata}
+							windowA={window}
 						>
 							{window.menu && (
 								<MenuBar
@@ -386,6 +399,8 @@ const WindowManager = ({ programs, windowName, windowId, windowA, handleOpenFunc
 									)}
 									<div className="window-content">
 										<window.component
+											onClick={() => bringToFront(window.windowId)}
+
 											key={windowName + '_component_' + _windowId}
 											windowId={window.windowId}
 											windowName={window.progName.replace('.exe', '') + '-' + _windowId}
@@ -411,6 +426,7 @@ const WindowManager = ({ programs, windowName, windowId, windowA, handleOpenFunc
 											handleExit={handleExit}
 											hashPath={hashPathRef.current}
 											sendUpHash={_sendUpHash}
+
 										/>
 									</div>
 								</>
@@ -432,6 +448,7 @@ const WindowManager = ({ programs, windowName, windowId, windowA, handleOpenFunc
 						{ label: 'Restore', shortcut: 'R' },
 						{ label: 'Minimize', shortcut: 'N' },
 						{ label: 'Maximize', shortcut: 'X' },
+						{ label: 'Screensaver', shortcut: 'S' },
 					]}
 					position={contextMenuPosition}
 					onAction={handleContextMenuAction}
