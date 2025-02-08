@@ -22,7 +22,6 @@ const MenuBar = ({ menu, window, onMenuClick }) => {
 			setOpenMenu(null); // Close any open submenu
 		}
 	};
-
 	// useEffect(() => {
 	// 	console.log('Menu:', menu);
 	// }

@@ -33,6 +33,48 @@ const getTokenBalance = (token, wallets) => {
 
 // Column definitions with parsing/validation
 export const COLUMN_MAPPING = {
+  status: {
+    title: 'Status',
+    editor: 'readonly',
+    compact: true,
+    format: (value, row) => {
+      // Check for required fields
+      if (!row.fromToken || !row.toToken || !row.amountIn) {
+        return { color: 'red', tooltip: 'Missing required fields' };
+      }
+
+      // Check for errors
+      if (row.status?.toLowerCase().includes('error')) {
+        return { color: 'red', tooltip: row.status };
+      }
+
+      // Has quote but needs balance check
+      if (row.route && row.expectedOut) {
+        // Get balances as numbers
+        const fromBalance = row.fromToken?.balance ? 
+          Number(row.fromToken.balance.bigIntValue) / Number(row.fromToken.balance.decimalMultiplier) : 0;
+        const gasBalance = row.gasBalance ? 
+          Number(row.gasBalance.bigIntValue) / Number(row.gasBalance.decimalMultiplier) : 0;
+        
+        // Check if we have enough balance for the swap
+        const hasEnoughBalance = fromBalance >= Number(row.amountIn);
+        const hasEnoughGas = gasBalance > 0; // Simplified check, could be more precise
+
+        if (!hasEnoughBalance || !hasEnoughGas) {
+          return { 
+            color: 'orange', 
+            blink: true,
+            tooltip: `Insufficient ${!hasEnoughBalance ? 'token' : 'gas'} balance. ` + 
+                    `Have: ${!hasEnoughBalance ? fromBalance : gasBalance}`
+          };
+        }
+        return { color: 'green', tooltip: row.status || 'Ready to swap' };
+      }
+
+      // Needs quote
+      return { color: 'amber', tooltip: row.status || 'Quote required' };
+    }
+  },
   swapid: {
     title: 'Swap ID',
     editor: 'readonly',
@@ -73,7 +115,7 @@ export const COLUMN_MAPPING = {
     editor: 'tokenSelect',
     compact: true,
     parse: (value) => value?.identifier,
-    format: (value) => value?.identifier
+    format: (value) => value?.identifier || value
   },
   currentOutBalance: {
     title: 'Balance',
@@ -147,10 +189,11 @@ export const COLUMN_MAPPING = {
     compact: true,
     parse: (value) => parseInt(value),
     format: (value, row) => {
-      // Show route's streaming interval if available
+      // Only show route values if they exist
       if (row?.route?.streamingSwap) {
-        return row.route.streamingBlocks || '';
+        return row.route.streamingBlocks?.toString() || '0';
       }
+      // Otherwise show manually entered value
       return value || '';
     }
   },
@@ -161,11 +204,12 @@ export const COLUMN_MAPPING = {
     compact: true,
     parse: (value) => parseInt(value),
     format: (value, row) => {
-      // Show route's number of swaps if available
+      // Only show route values if they exist
       if (row?.route?.streamingSwap) {
-        return row.route.streamingQuantity || '';
+        return row.route.streamingQuantity ? row.route.streamingQuantity.toString() : 'Auto';
       }
-      return value || '';
+      // For non-streaming swaps show 1, otherwise show manual value
+      return row?.route ? '1' : (value || '');
     }
   },
   gasFee: {
@@ -174,7 +218,7 @@ export const COLUMN_MAPPING = {
     compact: true,
     format: (value, row) => {
       if (!row?.route) return '';
-
+      if (!row.route.providers) return '';
       // For Thorchain/Maya routes, calculate total gas cost
       if (row.route.providers.some(p => ['THORCHAIN', 'THORCHAIN_STREAMING', 'MAYACHAIN', 'MAYACHAIN_STREAMING'].includes(p))) {
         const gas = row.route.fees?.gas;
@@ -371,6 +415,11 @@ export const validateField = (field, value) => {
   const mapping = COLUMN_MAPPING[field];
   if (!mapping?.validate) return true;
   return mapping.validate(value);
+};
+
+// Add function to check if field is streaming related
+export const isStreamingField = (field) => {
+  return field === 'streamingInterval' || field === 'streamingNumSwaps';
 };
 
 // Update handleCellUpdate to handle streaming parameters

@@ -85,6 +85,7 @@
     "web-vitals": "^2.1.4",
     "webpack": "^5.88.1",
     "webpack-cli": "^4.9.0",
+    "xlsx": "^0.18.5",
     "yarn": "^1.22.19"
   },
   "overrides": {
@@ -102,7 +103,6 @@
     "test": "react-app-rewired test",
     "eject": "react-scripts eject",
     "analyze": "source-map-explorer 'build/static/js/*.js'"
-
   },
   "browserslist": {
     "production": [

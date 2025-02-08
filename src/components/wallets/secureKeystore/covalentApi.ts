@@ -1,6 +1,6 @@
 import { RequestClient, ChainId } from "@swapkit/helpers";
-import { formatBigIntToSafeValue } from "./bigintHelpers"; // adjust path as needed
-import { ChainIdToChain } from "./chainMappings"; // adjust path as needed
+import { formatBigIntToSafeValue } from "../../apps/winbit32/helpers/bigIntArithmetics";
+import { ChainIdToChain } from "@swapkit/helpers";
 
 // The type returned by Covalent v3
 interface CovalentBalanceResponseV3 {

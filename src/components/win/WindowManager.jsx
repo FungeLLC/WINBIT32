@@ -312,6 +312,7 @@ const WindowManager = ({ programs, windowName, windowId, windowA, handleOpenFunc
 			// console.log('hashes:', hashes, frontWindow.windowId, windowId);
 			//send with the front window but don't add to downstreamHashes
 			if(!frontWindow.invisibleToHash){
+				// console.log('Sending up hash:', frontWindow.progName);
 				hashes.push(frontWindow.progName);
 			}
 			sendUpHash(hashes, windowId);	
@@ -324,7 +325,9 @@ const WindowManager = ({ programs, windowName, windowId, windowA, handleOpenFunc
 	return (
 		<>
 			<div className="window-manager">
-				{Array.isArray(windows) && windows.map(window => {
+				{Array.isArray(windows) && [...windows]
+					.sort((a, b) => b.zIndex - a.zIndex) // Changed sort order to show highest zIndex first
+					.map(window => {
 					if (closedWindows.includes(window.windowId)) {
 						return null; // Skip rendering closed windows
 					}

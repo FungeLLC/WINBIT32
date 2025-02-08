@@ -49,3 +49,9 @@
 .edit-column-buttons button:hover {
   opacity: 0.8;
 }
+
+@keyframes blink {
+  0% { opacity: 1; }
+  50% { opacity: 0.4; }
+  100% { opacity: 1; }
+}

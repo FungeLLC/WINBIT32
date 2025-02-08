@@ -1,5 +1,6 @@
 import {
 	Chain,
+	ChainId,
 	type ConnectWalletParams,
 	DerivationPath,
 	type DerivationPathArray,
@@ -228,12 +229,18 @@ const getWalletMethodsForChain = async ({
 		case Chain.Polygon: {
 			const keys = ensureEVMApiKeys({ chain, covalentApiKey, ethplorerApiKey });
 			const provider = getProvider(chain, rpcUrl);
-			const chainId = ChainToChainId(Chain);
-			const covalentApi = covalentApi({apiKey: covalentApiKey, chainId})
+			const chainId = ChainToChainId[chain];
+
+			console.log("EVM ChainId", chain, chainId);
+
+			const cApi = covalentApi({apiKey: covalentApiKey, chainId})
+
+			console.log("EVM Chain", chain, rpcUrl, provider, keys, cApi, phrase);
+
 			const wallet = isPK(phrase)
 				? new ethersWallet(phrase).connect(provider)
 				: HDNodeWallet.fromPhrase(phrase).connect(provider);
-			const params = { ...keys, api: covalentApi, provider, signer: wallet };
+			const params = { ...keys, api: cApi, provider, signer: wallet };
 
 			address = wallet.address;
 

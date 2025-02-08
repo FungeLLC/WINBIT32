@@ -365,7 +365,6 @@ export async function getQuoteFromThorchainDirect(quoteParams) {
     providers: ["THORCHAIN"],
     sellAsset: quoteParams.sellAsset,
     buyAsset: quoteParams.buyAsset,
-    // Add sellAmount to route
     sellAmount: Number(amount) / 1e8,
     expectedBuyAmount: Number(data.expected_amount_out) / 1e8,
     expectedBuyAmountMaxSlippage: Number(data.expected_amount_out) / 1e8,
@@ -383,13 +382,14 @@ export async function getQuoteFromThorchainDirect(quoteParams) {
         ...gasDetails,
         estimated: estimatedGasFee
       },
-      asset_price: data.fees?.asset_price || 1, // Include asset price from quote
+      asset_price: data.fees?.asset_price || 1
     },
     totalSlippageBps: data.slippage_bps,
     inboundAddress: data.inbound_address,
-    streamingSwap: !!data.streaming_swap_blocks,
-    streamingBlocks: data.streaming_swap_blocks,
-    streamingQuantity: data.streaming_quantity,
+    // Only set streaming parameters if max_streaming_quantity > 0
+    streamingSwap: data.max_streaming_quantity > 0,
+    streamingBlocks: data.max_streaming_quantity > 0 ? data.streaming_swap_blocks : 0,
+    streamingQuantity: data.max_streaming_quantity || 0,
     thorchainQuote: data
   };
 

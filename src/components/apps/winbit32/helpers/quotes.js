@@ -81,6 +81,8 @@ export const getQuotes = async (
 				affiliate: affiliate,
 				slippage: slippage,
 				providers: providerGroup,
+				streaming_interval: chunkIntervalBlocks || undefined,
+				streaming_quantity: numChunks || undefined,
 			};
 			return swapKitQuoteParams;
 		});
@@ -99,6 +101,8 @@ export const getQuotes = async (
 			sourceAddress: chooseWalletForToken(swapFrom, wallets)?.address,
 			destinationAddress: thisDestinationAddress,
 			affiliateBasisPoints: basisPoints.toString(),
+			numChunks: numChunks || 1,
+			chunkIntervalBlocks: chunkIntervalBlocks || 20,
 		};
 
 		console.log("chainflipQuoteParams", chainflipQuoteParams);
@@ -412,14 +416,46 @@ const processSwapKitRoutes = (response, swapToDecimals) => {
 	routes.forEach((route) => {
 		route.quoteId = quoteid;
 		
-		// Handle both array and object fee structures
+		// Handle fees structure
 		if (Array.isArray(route.fees)) {
 			route.gasFee = route.gasFee || route.fees.find((fee) => fee.type === "inbound")?.amount;
 		} else if (typeof route.fees === 'object') {
 			route.gasFee = route.fees?.gas?.estimated || route.gasFee;
 		}
-		
-		// Rest of the memo handling
+
+		// Normalize streaming parameters
+		if (route.providers.some(p => p.includes('_STREAMING'))) {
+			route.streamingSwap = true;
+			 // Handle SwapKit streaming parameters
+			if (route.meta?.streamingInterval) {
+				route.streamingBlocks = route.meta.streamingInterval;
+				route.streamingQuantity = route.meta.maxStreamingQuantity || 0;
+			}
+			// Check memo for streaming params (Maya/Thor format)
+			else if (route.memo) {
+				const memoMatch = route.memo.match(/(\d+)\/(\d+)\/(\d+)/);
+				if (memoMatch) {
+					route.streamingQuantity = parseInt(memoMatch[2]) || 0;
+					route.streamingBlocks = parseInt(memoMatch[3]) || 0;
+				}
+			}
+			// Add total duration for UI
+			route.estimatedTime = route.estimatedTime?.total || 
+								Object.values(route.estimatedTime || {}).reduce((a, b) => a + b, 0);
+		} else if (route.cfQuote?.type === 'DCA') {
+			// Handle Chainflip DCA format
+			route.streamingSwap = true;
+			route.streamingBlocks = route.cfQuote.dcaParams?.chunkIntervalBlocks || 0;
+			route.streamingQuantity = route.cfQuote.dcaParams?.numberOfChunks || 0;
+			route.estimatedTime = route.cfQuote.estimatedDurationSeconds;
+		} else {
+			route.streamingSwap = false;
+			route.streamingBlocks = 0;
+			route.streamingQuantity = 1;
+			route.estimatedTime = route.estimatedTime?.total || 0;
+		}
+
+		// Rest of memo handling
 		if (route.memo && (route.providers.includes("MAYACHAIN") || route.providers.includes("MAYACHAIN_STREAMING"))){
 			route.originalMemo = route.memo;
 			const parts = route.memo.split(":");
