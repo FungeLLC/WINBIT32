@@ -1,25 +1,76 @@
 import { copyToCSV } from './clipboard';
 import * as XLSX from 'xlsx';
+import { initialRowState } from '../Exora'; // Import initialRowState
+import { hasData } from '../Exora'; // Add this import
+
+// Helper for sanitizing data before save
+const sanitizeForExport = (value) => {
+  if (typeof value === 'bigint') {
+    return value.toString();
+  }
+  if (typeof value === 'object' && value !== null) {
+    return JSON.stringify(value, (key, val) => 
+      typeof val === 'bigint' ? val.toString() : val
+    );
+  }
+  return value;
+};
+
+// Helper to format cell value for export
+const formatCellValue = (value, mapping) => {
+  if (!value) return '';
+  
+  // Special handling for status cell
+  if (mapping?.title === 'Status') {
+    const formatted = mapping.format(null, value); // Pass null as value, full row as second param
+    return formatted?.tooltip || formatted || value || '';
+  }
+  
+  if (mapping?.editor === 'tokenSelect') {
+    return value.identifier || '';
+  }
+  
+  if (mapping?.format && typeof mapping.format === 'function') {
+    const formatted = mapping.format(value);
+    return typeof formatted === 'object' ? '' : String(formatted);
+  }
+  
+  return String(value || '');
+};
 
 export const saveToFile = async (rows, COLUMN_MAPPING, type = 'csv') => {
-  const validRows = rows.filter(r => !r.isEmpty);
+  // Only include non-empty rows that have actual data
+  const validRows = rows.filter(r => !r.isEmpty && hasData(r));
   
   if (type === 'csv') {
-    // Add metadata as a special commented section at top
-    const metadata = validRows.map(row => ({
-      swapid: row.swapid,
-      iniData: row.iniData,
-      reportData: row.reportData,
-      route: row.route,
-      routes: row.routes,
-      // Add any other fields we want to preserve
-    }));
+    // Get visible columns and their titles
+    const columns = Object.entries(COLUMN_MAPPING)
+      .filter(([_, mapping]) => mapping.title) 
+      .map(([field, mapping]) => ({
+        field,
+        title: mapping.title,
+        mapping
+      }));
+
+    // Create CSV header row
+    const headers = columns.map(col => col.title).join(',');
     
-    const metadataSection = `#METADATA=${btoa(JSON.stringify(metadata))}\n`;
-    const csv = copyToCSV(validRows, COLUMN_MAPPING);
-    const content = metadataSection + csv;
+    // Create data rows with null checks
+    const dataRows = validRows.map(row => 
+      columns.map(col => {
+        try {
+          return formatCellValue(row[col.field], col.mapping);
+        } catch (err) {
+          console.warn(`Error formatting cell ${col.field}:`, err);
+          return '';
+        }
+      }).join(',')
+    );
     
-    const blob = new Blob([content], { type: 'text/csv' });
+    // Combine headers and data
+    const csv = [headers, ...dataRows].join('\n');
+    
+    const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -32,30 +83,23 @@ export const saveToFile = async (rows, COLUMN_MAPPING, type = 'csv') => {
   if (type === 'xlsx') {
     const wb = XLSX.utils.book_new();
     
-    // Main data sheet
-    const headers = Object.entries(COLUMN_MAPPING).map(([_, mapping]) => mapping.title);
+    // Main data sheet - only include visible columns
+    const columns = Object.entries(COLUMN_MAPPING)
+      .filter(([_, mapping]) => mapping.title);
+    
+    const headers = columns.map(([_, mapping]) => mapping.title);
     const data = [headers];
+    
     validRows.forEach(row => {
-      const rowData = Object.entries(COLUMN_MAPPING).map(([field, mapping]) => {
-        const value = row[field];
-        return mapping?.format ? mapping.format(value, row) : value || '';
-      });
+      const rowData = columns.map(([field, mapping]) => 
+        formatCellValue(row[field], mapping)
+      );
       data.push(rowData);
     });
+    
     const ws = XLSX.utils.aoa_to_sheet(data);
     XLSX.utils.book_append_sheet(wb, ws, "Swaps");
-
-    // Metadata sheet
-    const metadataSheet = XLSX.utils.json_to_sheet(validRows.map(row => ({
-      swapid: row.swapid,
-      iniData: row.iniData,
-      reportData: JSON.stringify(row.reportData || {}),
-      route: JSON.stringify(row.route || {}),
-      routes: JSON.stringify(row.routes || []),
-      // Add other fields to preserve
-    })));
-    XLSX.utils.book_append_sheet(wb, metadataSheet, "_Metadata");
-
+    
     XLSX.writeFile(wb, `swaps_${new Date().toISOString().split('T')[0]}.xlsx`);
   }
 };
@@ -82,7 +126,7 @@ export const loadFromFile = async (file, tokens, COLUMN_MAPPING, initialRowState
 
 					// Parse CSV content (excluding metadata line)
 					const csvContent = text.replace(/^#METADATA=.+\n/, "");
-					const rows = parseCSVContent(csvContent, COLUMN_MAPPING);
+					const rows = parseCSVContent(csvContent, COLUMN_MAPPING, tokens);
 
 					// Merge metadata back into rows
 					const mergedRows = rows.map((row, i) => ({
@@ -193,4 +237,50 @@ export const parseCSVUnified = (text, COLUMN_MAPPING) => {
   });
   
   return { rows: parsedRows, mapping: updatedMapping };
+};
+
+export const parseCsvRow = (csvText, COLUMN_MAPPING, tokens) => { // Add tokens parameter
+  const lines = csvText.split('\n').filter(line => line.trim());
+  if (lines.length < 2) return [];
+  
+  // Get raw header titles from CSV
+  const rawHeaders = lines[0].split(',').map(s => s.trim());
+  
+  // Map titles to field names using COLUMN_MAPPING
+  const fieldMap = Object.entries(COLUMN_MAPPING).reduce((acc, [field, mapping]) => {
+    if (mapping.title) {
+      acc[mapping.title.toLowerCase()] = {
+        field,
+        mapping
+      };
+    }
+    return acc;
+  }, {});
+  
+  // Parse each data row
+  return lines.slice(1).map(line => {
+    const values = line.split(',').map(s => s.trim());
+    const rowData = { ...initialRowState };
+    
+    rawHeaders.forEach((title, idx) => {
+      const mapping = fieldMap[title.toLowerCase()];
+      if (mapping && values[idx]) {
+        const value = values[idx];
+        
+        if (mapping.mapping.editor === 'tokenSelect' && value) {
+          // Try to find matching token by identifier
+          const token = tokens?.find(t => 
+            t.identifier.toLowerCase() === value.toLowerCase()
+          );
+          rowData[mapping.field] = token || { identifier: value };
+        } else if (mapping.mapping.parse) {
+          rowData[mapping.field] = mapping.mapping.parse(value);
+        } else {
+          rowData[mapping.field] = value;
+        }
+      }
+    });
+    
+    return hasData(rowData) ? { ...rowData, isEmpty: false } : null;
+  }).filter(Boolean);
 };

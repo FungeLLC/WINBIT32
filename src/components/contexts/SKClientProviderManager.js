@@ -5,6 +5,7 @@ import React, {
 	useEffect,
 	useMemo,
 	useCallback,
+	useRef
 } from "react";
 import { ChainflipBroker } from "../plugins/chainflip/broker.ts";	
 import { ChainflipToolbox } from "../plugins/substrateToolboxFactory.ts";
@@ -34,6 +35,10 @@ import {
 	PHANTOM_SUPPORTED_CHAINS,
 } from "../wallets/wallet-phantom";
 import { keystoreWallet } from "@swapkit/wallet-keystore";
+import { alchemyApi } from "./covalentApi.ts";
+import { ChainId } from "@swapkit/sdk";
+
+
 
 const NETWORKS = {
   secp256k1: [
@@ -83,6 +88,8 @@ const initialState = {
 	],
 	providers: [],
 	tokens: [],
+	globalTokens: null,
+	globalApi: null,
 	chainflipBroker: {},
 	chainflipToolbox: null,
 };
@@ -156,6 +163,15 @@ const reducer = (state, action) => {
 					)
 				}
 			};
+		case "SET_GLOBAL_TOKENS":
+			return {
+				...state,
+				globalTokens: action.tokens,
+				globalApi: alchemyApi({
+					tokens: action.tokens,
+					apiKey: "FO4hmpAlkjKyPeT9xKT4ANsxmjJUX1Vb",
+				})
+			};
 		default:
 			return state;
 	}
@@ -164,73 +180,125 @@ const reducer = (state, action) => {
 export const SKClientProviderManager = ({ children }) => {
 	const [state, dispatch] = useReducer(reducer, initialState);
 
-	const createOrSelectSKClient = useCallback(
-		(key) => {
-			if (state.clients[key]) {
-				return state.clients[key];
+	const loadProvidersAndTokens = useCallback(async () => {
+		if (state.globalTokens) {
+			return state.globalTokens;
+		}
+	
+		try {
+			let providerResponse = await fetch("https://api.swapkit.dev/providers");
+			if (providerResponse.status !== 200) {
+				console.log("Error fetching providers", providerResponse);
+				providerResponse = await fetch("https://dev-api.swapkit.dev/providers");
 			}
-
-			console.log(secureKeystoreWallet);
-
-			const client = createSwapKit({
-				config: {
-					blockchairApiKey: "A___UmqU7uQhRUl4" + "UhNzCi5LOu81LQ1T",
-					covalentApiKey: "cqt_rQygB4xJkdvm8fxRcBj3MxBhCHv4",
-					ethplorerApiKey: "EK-8ftjU-8Ff" + "7UfY-JuNGL",
-					walletConnectProjectId: "dac706e68e589ffa15fed9bbccd825f7",
-
-					chainflipBrokerUrl: "https://chainflip.winbit32.com",
-					chainflipBrokerConfig: {
-						chainflipBrokerUrl: "https://chainflip.winbit32.com",
-						useChainflipSDKBroker: true,
-						chainflipBrokerEndpoint: "https://chainflip.winbit32.com",
-					},
-					thorswapApiKey: "",
-				},
-				plugins: {
-					...ChainflipPlugin,
-					...MayachainPlugin,
-					...ThorchainPlugin,
-				},
-				rpcUrls: {
-					Chainflip: "wss://rpc.chainflip.winbit32.com",
-					FLIP: "wss://rpc.chainflip.winbit32.com",
-					//"https://api-chainflip.dwellir.com/204dd906-d81d-45b4-8bfa-6f5cc7163dbc",
-					Ethereum:
-						"https://mainnet.infura.io/v3/c3b4e673639742a89bbddcb49895d568",
-					ETH: "https://api-eth-mainnet-archive.dwellir.com/204dd906-d81d-45b4-8bfa-6f5cc7163dbc",
-					AVAX: "https://avalanche-mainnet.infura.io/v3/c3b4e673639742a89bbddcb49895d568",
-					DOT: "https://rpc.polkadot.io",
-					KUJI: "https://kujira-rpc.publicnode.com:443",
-					BASE: "https://api-base-mainnet-archive.dwellir.com/204dd906-d81d-45b4-8bfa-6f5cc7163dbc",
-					BSC: "https://api-bsc-mainnet-full.dwellir.com/204dd906-d81d-45b4-8bfa-6f5cc7163dbc",
-					ARB: "https://api-arbitrum-mainnet-archive.dwellir.com/204dd906-d81d-45b4-8bfa-6f5cc7163dbc",
-					//ARB: "https://arbitrum-mainnet.infura.io/v3/c3b4e673639742a89bbddcb49895d568",
-					OP: "https://api-optimism-mainnet-archive.dwellir.com/204dd906-d81d-45b4-8bfa-6f5cc7163dbc",
-					MATIC:
-						"https://api-polygon-mainnet-full.dwellir.com/204dd906-d81d-45b4-8bfa-6f5cc7163dbc",
-					SOL: "https://rpc.ankr.com/solana/fb4077f99c50c07e75aec9cfcebfaf971cb3fce319a807e823943f962dc04e7d",
-					// XRD: "https://radix-mainnet.rpc.grove.city/v1/456359ff",
-					// Radix: "https://radix-mainnet.rpc.grove.city/v1/456359ff",
-				},
-
-				wallets: {
-					...walletconnectWallet,
-					...keystoreWallet,
-					...ctrlWallet,
-					...secureKeystoreWallet,
-					...phantomWallet,
-				},
+	
+			const providersUnsorted = await providerResponse.json();
+			const allProviders = providersUnsorted.sort((a, b) => {
+				if (a.provider === "THORSWAP" || b.provider === "MAYA") return -1;
+				if (b.provider === "THORSWAP" || a.provider === "MAYA") return 1;
+				return a.provider < b.provider ? -1 : 1;
 			});
-			console.log("Created client", client);
+	
+			const providers = allProviders.filter(p => 
+				p.provider.includes("THOR") || 
+				p.provider.includes("MAYA") || 
+				p.provider.includes("CHAINFLIP")
+			);
+	
+			dispatch({ type: "SET_PROVIDERS", providers });
+	
+			const tokensResponse = await Promise.all(
+				providers.map(async (provider) => {
+					const tokenResponse = await fetch(
+						`https://api.swapkit.dev/tokens?provider=${provider.provider}`
+					);
+					const tokenData = await tokenResponse.json();
+					if (!tokenData.tokens) return [];
+					
+					return tokenData.tokens
+						.map(token => ({
+							...token,
+							logoURI: token.identifier?.includes("/") ? 
+								token.logoURI.split("/").slice(0,-1).join("/") + "." + token.logoURI.split("/").pop() :
+								token.logoURI,
+							provider: provider.provider
+						}))
+						.filter(token => token.chain !== "BNB");
+				})
+			);
+	
+			const sortedTokens = tokensResponse.flat().sort((a, b) => {
+				if (a.shortCode || b.shortCode) return a.shortCode ? -1 : 1;
+				if (a.chain === a.ticker || b.chain === b.ticker) return a.chain === a.ticker ? -1 : 1;
+				return a.chain < b.chain ? -1 : 1;
+			});
+	
+			dispatch({ type: "SET_GLOBAL_TOKENS", tokens: sortedTokens });
+			return sortedTokens;
+	
+		} catch (error) {
+			console.error("Error loading initial data:", error);
+			return [];
+		}
+	}, [state.globalTokens]);
 
-			dispatch({ type: "ADD_CLIENT", key, client });
-			loadProvidersAndTokens();
+	const createOrSelectSKClient = useCallback((key) => {
+		if (state.clients[key]) {
+			return state.clients[key];
+		}
+	
+		const client = createSwapKit({
+			config: {
+				blockchairApiKey: "A___UmqU7uQhRUl4" + "UhNzCi5LOu81LQ1T",
+				covalentApiKey: "FO4hmpAlkjKyPeT9xKT4ANsxmjJUX1Vb",
+				ethplorerApiKey: "EK-8ftjU-8Ff" + "7UfY-JuNGL",
+				walletConnectProjectId: "dac706e68e589ffa15fed9bbccd825f7",
+				chainflipBrokerUrl: "https://chainflip.winbit32.com",
+				chainflipBrokerConfig: {
+					chainflipBrokerUrl: "https://chainflip.winbit32.com",
+					useChainflipSDKBroker: true,
+					chainflipBrokerEndpoint: "https://chainflip.winbit32.com",
+				},
+				thorswapApiKey: "",
+			},
+			apis: {
+				[Chain.arbitrum]: state.globalApi?.(ChainId.Arbitrum)
+			},
+			plugins: {
+				...ChainflipPlugin,
+				...MayachainPlugin,
+				...ThorchainPlugin,
+			},
+			wallets: {
+				...walletconnectWallet,
+				...keystoreWallet,
+				...ctrlWallet,
+				...secureKeystoreWallet,
+				...phantomWallet,
+			},
+			rpcUrls: {
+				// ...existing rpcUrls...
+			}
+		});
+	
+		// Add the setEncryptedKeystore method to the client
+		client.setEncryptedKeystore = (keystore) => {
+			client._encryptedKeystore = keystore;
+		};
+	
+		// Add the setPasswordRequestFunction method to the client
+		client.setPasswordRequestFunction = (fn) => {
+			client._passwordRequestFunction = fn;
+		};
+	
+		dispatch({ type: "ADD_CLIENT", key, client });
+		return client;
+	}, [state.clients, state.globalApi]);
 
-			return client;
-		},
-		[state.clients]
-	);
+	// Load providers and tokens on mount
+	useEffect(() => {
+		loadProvidersAndTokens();
+	}, [loadProvidersAndTokens]);
 
 	const setChainflipBroker = useCallback((key, chainflipBroker) => {
 		dispatch({ type: "SET_CHAINFLIPBROKER", key, chainflipBroker });
@@ -407,84 +475,6 @@ export const SKClientProviderManager = ({ children }) => {
 		},
 		[getChainflipToolbox, setChainflipBroker, state.chainflipBroker, state.chainflipToolbox, state.wallets]
 	);
-
-	const loadProvidersAndTokens = useCallback(async () => {
-		try {
-			let providerResponse;
-			providerResponse = await fetch("https://api.swapkit.dev/providers");
-
-			if (providerResponse.status !== 200) {
-				console.log("Error fetching providers", providerResponse);
-				providerResponse = await fetch("https://dev-api.swapkit.dev/providers");
-			}
-
-			const providersUnsorted = await providerResponse.json();
-			const allProviders = providersUnsorted.sort((a, b) => {
-				if (a.provider === "THORSWAP" || b.provider === "MAYA") {
-					return -1;
-				}
-				if (b.provider === "THORSWAP" || a.provider === "MAYA") {
-					return 1;
-				}
-				return a.provider < b.provider ? -1 : 1;
-			});
-
-			//providers we can do begin with  THOR, MAYA, and CHAINFLIP
-			const providers = allProviders.filter(
-				(p) => p.provider.includes("THOR") || p.provider.includes("MAYA") || p.provider.includes("CHAINFLIP")
-			);
-
-
-			dispatch({ type: "SET_PROVIDERS", providers });
-
-			console.log("Providers", providers);
-
-			const tokensResponse = await Promise.all(
-				providers.map(async (provider) => {
-					const tokenResponse = await fetch(
-						`https://api.swapkit.dev/tokens?provider=${provider.provider}`
-					);
-					const tokenData = await tokenResponse.json();
-					if (!tokenData.tokens) {
-						console.log("Error fetching tokens", tokenData);
-						return [];
-					}
-					const tokenData2 = tokenData.tokens.map((token) => {
-						if (token.identifier.includes("/")) {
-							const splitImage = token.logoURI.split("/");
-							const last = splitImage.pop();
-							const newUrl = splitImage.join("/") + "." + last;
-							token.logoURI = newUrl;
-						}
-						return token;
-					});
-					return tokenData2
-						.filter((token) => token.chain !== "BNB")
-						.map((token) => ({
-							...token,
-							provider: provider.provider,
-						}));
-				})
-			);
-
-			const sortedTokens = tokensResponse.flat().sort((a, b) => {
-				if (a.shortCode || b.shortCode) {
-					return a.shortCode ? -1 : 1;
-				}
-				if (a.chain === a.ticker || b.chain === b.ticker) {
-					return a.chain === a.ticker ? -1 : 1;
-				}
-				return a.chain < b.chain ? -1 : 1;
-			});
-
-			dispatch({
-				type: "SET_TOKENS",
-				tokens: sortedTokens,
-			});
-		} catch (error) {
-			console.error("Error loading initial data:", error);
-		}
-	}, []);
 
 	const updateWalletBalance = useCallback(async (key, chain) => {
 		const client = state.clients[key];

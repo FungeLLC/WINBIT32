@@ -34,7 +34,6 @@ import { addDialogOptions } from "./dialogOptions"
 import { Wallet as ethersWallet, Wallet } from "ethers";
 import { getNetwork } from "@swapkit/toolbox-utxo";
 import * as secp256k1 from "@bitcoinerlab/secp256k1";
-import { covalentApi } from "./covalentApi.ts";
 
 
 const derivationPathAccountPositions = {
@@ -231,11 +230,11 @@ const getWalletMethodsForChain = async ({
 			const provider = getProvider(chain, rpcUrl);
 			const chainId = ChainToChainId[chain];
 
-			console.log("EVM ChainId", chain, chainId);
+			// console.log("EVM ChainId", chain, chainId);
 
 			const cApi = covalentApi({apiKey: covalentApiKey, chainId})
 
-			console.log("EVM Chain", chain, rpcUrl, provider, keys, cApi, phrase);
+			// console.log("EVM Chain", chain, rpcUrl, provider, keys, cApi, phrase);
 
 			const wallet = isPK(phrase)
 				? new ethersWallet(phrase).connect(provider)

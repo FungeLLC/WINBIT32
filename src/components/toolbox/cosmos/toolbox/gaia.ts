@@ -18,7 +18,7 @@ import { BaseCosmosToolbox, getFeeRateFromThorswap } from "./BaseCosmosToolbox";
 
 export const GaiaToolbox = ({ server }: ToolboxParams = {}): GaiaToolboxType => {
   const client = new CosmosClient({
-    server: server || "https://node-router.thorswap.net/cosmos/rest",
+    server: server || "https://node-router.thorswap.net/cosmos/rpc",
     chainId: ChainId.Cosmos,
   });
 

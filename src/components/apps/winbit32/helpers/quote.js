@@ -43,12 +43,7 @@ export async function getQuoteFromThorSwap(quoteParams) {
 	const body = await response.json();
 	console.log('body', body);
 
-
-
-	if (response.status !== 200) {
-		throw new Error(body.message);
-	}
-
+	// Return the parsed quote so it can be used to update the routes list
 	return body;
 }
 

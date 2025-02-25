@@ -138,7 +138,7 @@ const Portfolio = ({ providerKey, handleOpenArray, onOpenWindow, windowId }) => 
 				return total + Number(balance.bigIntValue) / Number(balance.decimalMultiplier) * usdPrice.priceUsd;
 			}, 0);
 
-			const chain = wallet.balance[0].chain;
+			const chain = wallet?.balance[0]?.chain;
 
 			return { totalUSD, chain };
 

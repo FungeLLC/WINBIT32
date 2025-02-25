@@ -129,42 +129,50 @@ export 	const fetchTokenPrices = async (swapFrom, swapTo) => {
 	}
 };
 
+// Update price caching logic
+const priceCache = new Map();
+const CACHE_DURATION = 60000; // 1 minute
+
+const getCachedPrice = (identifier) => {
+  if (!identifier) return null;
+  const key = identifier.toLowerCase();
+  const cached = priceCache.get(key);
+  
+  if (!cached) return null;
+  if (Date.now() - cached.timestamp > CACHE_DURATION) {
+    priceCache.delete(key);
+    return null;
+  }
+  
+  return cached;
+};
 
 export const fetchMultipleTokenPrices = async (tokens) => {
-	try {
+  // Deduplicate tokens
+  const uniqueTokens = [...new Set(tokens.map(t => t.toLowerCase()))];
+  
+  // Get currently valid cached prices
+  const now = Date.now();
+  const cached = new Map();
+  const toFetch = [];
 
-		const tokenIdentifiers = tokens.map((token) => { return {identifier: token.toLowerCase()};});
+  uniqueTokens.forEach(token => {
+    const cachedData = getCachedPrice(token);
+    if (cachedData && now - cachedData.timestamp < CACHE_DURATION) {
+      cached.set(token, cachedData);
+    } else {
+      toFetch.push(token);
+    }
+  });
 
+  // Only fetch if we have uncached tokens
+  if (toFetch.length === 0) {
+    return uniqueTokens.map(token => ({
+      identifier: token,
+      price_usd: cached.get(token)?.price || 0,
+      time: now
+    }));
+  }
 
-		const response = await fetch("https://api.swapkit.dev/price", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-			},
-			body: JSON.stringify({
-				tokens: 
-					tokenIdentifiers
-				,
-				metadata: true,
-			}),
-		});
-
-		const data = await response.json();
-
-		const tokenUSDPrices = data.map((item) => {
-			return {
-				identifier: item.identifier,
-				price_usd: item.price_usd,
-				time: Date.now()
-			};
-		});
-
-		console.log("Token prices:", tokenUSDPrices);
-
-		return tokenUSDPrices;
-	
-	} catch (error) {
-		console.error("Error fetching token prices:", error);
-		return { fromPrice: 0, toPrice: 0 };
-	}
+  // ... rest of fetchMultipleTokenPrices function ...
 };

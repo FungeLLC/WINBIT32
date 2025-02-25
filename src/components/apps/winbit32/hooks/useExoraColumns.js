@@ -1,7 +1,6 @@
-import { useMemo, useCallback } from 'react';
-import { RowNumber, HeaderCell, LetterCell } from '../styles/Exora';
-import { FaEllipsisH } from 'react-icons/fa';
-
+import { useMemo, useCallback } from "react";
+import { RowNumber, HeaderCell, LetterCell } from "../styles/Exora";
+import { FaEllipsisH } from "react-icons/fa";
 
 export default function useExoraColumns({
 	compactView,
@@ -15,7 +14,9 @@ export default function useExoraColumns({
 	setSelectedCell,
 	setCurrentTokenSetter,
 	updateCell,
-	setIsTokenDialogOpen
+	setIsTokenDialogOpen,
+	wallets,
+	formatTokenBalance,
 }) {
 	const getVisibleColumns = useCallback(() => {
 		const numberCol = {
@@ -52,111 +53,39 @@ export default function useExoraColumns({
 					<div>{COLUMN_MAPPING.status.title}</div>
 				</HeaderCell>
 			),
-			selector: row => row.status,
-			width: '40px',
-			cell: row => {
+			selector: (row) => row.status,
+			width: "40px",
+			cell: (row) => {
 				const status = COLUMN_MAPPING.status.format(null, row);
 				return (
-					<div 
-						style={{ 
-							width: '12px', 
-							height: '12px', 
-							borderRadius: '50%', 
+					<div
+						style={{
+							width: "12px",
+							height: "12px",
+							borderRadius: "50%",
 							backgroundColor: status.color,
-							margin: 'auto',
+							margin: "auto",
 							// Add blinking animation for low balance warning
-							animation: status.blink ? 'blink 2s infinite' : 'none'
+							animation: status.blink ? "blink 2s infinite" : "none",
 						}}
 						title={status.tooltip}
 					/>
 				);
-			}
+			},
 		};
 
-		const dataColumns = Object.entries(COLUMN_MAPPING)
-			.filter(([field, mapping]) => field !== 'status' && (!compactView || mapping.compact))
-			.map(([field, mapping], idx) => ({
-				name: (
-					<HeaderCell>
-						<LetterCell>{getLetterForIndex(idx)}</LetterCell>
-						<div>{mapping.title}</div>
-					</HeaderCell>
-				),
-				selector: (row) => row[field],
-				cell: (row) => {
-					const isSelected = selectedRow?.swapid === row.swapid && selectedCell === field;
-					
-					return (
-						<div
-							className={`cell_inner editor_${mapping.editor} cell_${field}_${row?.swapid}`}
-							onClick={(e) => {
-								e.stopPropagation();
-								handleCellSelect(row, field);
-							}}
-							onDoubleClick={(e) => {
-								e.stopPropagation();
-								handleCellSelect(row, field);
-								startEditing(row, field, true);
-							}}
-							style={{
-								cursor: row.isEmpty ? 'default' : 'pointer',
-								padding: '4px',
-								border: isSelected ? '1px solid #000' : 'none',
-								display: 'flex',
-								justifyContent: 'space-between',
-								alignItems: 'center',
-							}}>
-							{mapping.editor === "tokenSelect" ? (
-								<>
-									{row[field] ? (
-										<span style={{ display: "flex", alignItems: "center" }}>
-											<img
-												src={row[field].logoURI}
-												alt={row[field].name}
-												style={{
-													width: "20px",
-													height: "20px",
-													marginRight: "5px",
-												}}
-											/>
-											<span>
-												<b>{row[field].ticker}</b> {row[field].name} on{" "}
-												{row[field].chain}
-												{row[field]?.ticker?.includes("/") ? " (Synthetic)" : ""}
-											</span>
-										</span>
-									) : (
-										<span></span>
-									)}
-								</>
-							) : (
-								<span>
-									{mapping.format ? mapping.format(row[field], row) : row[field]}
-								</span>
-							)}
-							{mapping.editor === "tokenSelect" && !row.isEmpty && (
-								<FaEllipsisH
-									style={{ opacity: 0.5, marginLeft: "4px", cursor: "pointer" }}
-									onClick={(e) => {
-										e.stopPropagation();
-										setSelectedRow(row);
-										setSelectedCell(field);
-										setCurrentTokenSetter(
-											() => (token) => updateCell(row, field, token)
-										);
-										setIsTokenDialogOpen(true);
-									}}
-								/>
-							)}
-						</div>
-					);
-				},
-			}));
 
-		const routeColumn = {
+		const dataColumns = Object.entries(COLUMN_MAPPING)
+			.filter(
+				([field, mapping]) =>
+					field !== "status" && (!compactView || mapping.compact)
+			)
+			.map(([field, mapping], idx) => {
+				if (mapping.title === "Routes") {
+					return  {
 			name: (
 				<HeaderCell>
-					<LetterCell>{getLetterForIndex(dataColumns.length)}</LetterCell>
+					<LetterCell>{getLetterForIndex(idx + 1)}</LetterCell>
 					<div>Routes</div>
 				</HeaderCell>
 			),
@@ -198,8 +127,112 @@ export default function useExoraColumns({
 				</div>
 			),
 		};
+				} else {
+					return {
+						name: (
+							<HeaderCell>
+								<LetterCell>{getLetterForIndex(idx + 1)}</LetterCell>
+								<div>{mapping.title}</div>
+							</HeaderCell>
+						),
+						selector: (row) => row[field],
+						cell: (row) => {
+							const isSelected =
+								selectedRow?.swapid === row.swapid && selectedCell === field;
 
-		return [numberCol, statusColumn, ...dataColumns, routeColumn];
+							// Add key to force re-render when row is updated
+							const key = `${row.swapid}_${field}_${row.updateKey || ""}`;
+
+							// Update display logic for balance fields
+							if (field === 'currentInBalance') {
+								return formatTokenBalance(row.fromToken, wallets);
+							}
+							if (field === 'currentOutBalance') {
+								return formatTokenBalance(row.toToken, wallets);
+							}
+							if (field === 'gasBalance') {
+								return formatTokenBalance(row.gasAsset, wallets);
+							}
+
+							return (
+								<div
+									key={key}
+									className={`cell_inner editor_${mapping.editor} cell_${field}_${row?.swapid}`}
+									onClick={(e) => {
+										e.stopPropagation();
+										handleCellSelect(row, field);
+									}}
+									onDoubleClick={(e) => {
+										e.stopPropagation();
+										handleCellSelect(row, field);
+										startEditing(row, field, true);
+									}}
+									style={{
+										cursor: row.isEmpty ? "default" : "pointer",
+										padding: "4px",
+										border: isSelected ? "1px solid #000" : "none",
+										display: "flex",
+										justifyContent: "space-between",
+										alignItems: "center",
+									}}>
+									{mapping.editor === "tokenSelect" ? (
+										<>
+											{row[field] ? (
+												<span style={{ display: "flex", alignItems: "center" }}>
+													<img
+														src={row[field].logoURI}
+														alt={row[field].name}
+														style={{
+															width: "20px",
+															height: "20px",
+															marginRight: "5px",
+														}}
+													/>
+													<span>
+														<b>{row[field].ticker}</b> {row[field].name} on{" "}
+														{row[field].chain}
+														{row[field]?.ticker?.includes("/")
+															? " (Synthetic)"
+															: ""}
+													</span>
+												</span>
+											) : (
+												<span></span>
+											)}
+										</>
+									) : (
+										<span>
+											{mapping.format
+												? mapping.format(row[field], row)
+												: row[field]}
+										</span>
+									)}
+									{mapping.editor === "tokenSelect" && !row.isEmpty && (
+										<FaEllipsisH
+											style={{
+												opacity: 0.5,
+												marginLeft: "4px",
+												cursor: "pointer",
+											}}
+											onClick={(e) => {
+												e.stopPropagation();
+												setSelectedRow(row);
+												setSelectedCell(field);
+												setCurrentTokenSetter(
+													() => (token) => updateCell(row, field, token)
+												);
+												setIsTokenDialogOpen(true);
+											}}
+										/>
+									)}
+								</div>
+							);
+						},
+					};
+				}
+			});
+
+		return [numberCol, statusColumn, ...dataColumns];
 	}, [
 		compactView,
 		selectedRow?.swapid, // Only depend on ID
@@ -207,7 +240,7 @@ export default function useExoraColumns({
 		handleCellSelect,
 		startEditing,
 		getLetterForIndex,
-		// Remove other unstable dependencies
+		wallets,
 	]);
 
 	return useMemo(() => getVisibleColumns(), [getVisibleColumns]);

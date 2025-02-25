@@ -7,35 +7,36 @@ const sanitizeValue = (value) => {
 };
 
 export const copyToCSV = (rows, COLUMN_MAPPING, includeMetadata = true) => {
-  const mappingKeys = Object.keys(COLUMN_MAPPING);
-  let headersArr;
-  if (includeMetadata) {
-    const allKeys = new Set();
-    rows.filter(r => !r.isEmpty).forEach(row => {
-      Object.keys(row).forEach(key => allKeys.add(key));
-    });
-    const extraKeys = [...allKeys].filter(key => !mappingKeys.includes(key));
-    headersArr = [...mappingKeys, ...extraKeys];
-  } else {
-    // Exclude metadata by using only keys in COLUMN_MAPPING
-    headersArr = mappingKeys;
-  }
-  
-  const headers = headersArr.map(key => {
-    const title = COLUMN_MAPPING[key]?.title || key;
-    return sanitizeValue(title);
-  }).join(',');
+  // Filter out empty rows and get visible columns
+  const validRows = rows.filter(r => !r.isEmpty);
+  const columns = Object.entries(COLUMN_MAPPING)
+    .filter(([_, mapping]) => mapping.title)
+    .map(([field, mapping]) => ({
+      field,
+      title: mapping.title,
+      mapping
+    }));
 
-  const values = rows.filter(r => !r.isEmpty).map(row =>
-    headersArr.map(key => {
-      const val = (COLUMN_MAPPING[key]?.format 
-                     ? COLUMN_MAPPING[key].format(row[key], row) 
-                     : row[key]) || '';
-      return sanitizeValue(val);
+  // Create headers row
+  const headers = columns.map(col => sanitizeValue(col.title)).join(',');
+  
+  // Create data rows
+  const dataRows = validRows.map(row =>
+    columns.map(col => {
+      const value = col.mapping.format 
+        ? col.mapping.format(row[col.field], row)
+        : row[col.field];
+      
+      // Handle status objects
+      if (col.mapping.title === 'Status') {
+        return sanitizeValue(value?.tooltip || value || '');
+      }
+      
+      return sanitizeValue(value || '');
     }).join(',')
   ).join('\n');
 
-  return `${headers}\n${values}`;
+  return `${headers}\n${dataRows}`;
 };
 
 export const generateIni = (row, COLUMN_MAPPING) => {

@@ -10,7 +10,7 @@ import {
   type UTXOWallets,
 } from "@swapkit/helpers";
 import { assetTickerToChainflipAsset, chainToChainflipChain } from "./broker";
-import type { RequestSwapDepositAddressParams } from "./types.ts";
+import type { RequestSwapDepositAddressParams } from "./types";
 import { min } from "lodash";
 import { format } from "mathjs";
 

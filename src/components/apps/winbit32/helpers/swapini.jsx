@@ -15,7 +15,7 @@ const toTitleCase = (str) => {
   );
 };
 
-const getTokenBalance = (token, wallets) => {
+export const getTokenBalance = (token, wallets) => {
   if (!token || !wallets) return 0;
 
   const chain = token.chain;
@@ -24,11 +24,37 @@ const getTokenBalance = (token, wallets) => {
 
   if (!wallet) return 0;
 
-  const balance = wallet.balances.find(b => b.symbol === token.symbol);
+  if(!wallet.balance){
+    console.log('Wallet balances not found', wallet);
+    return 0;
+  }
 
-  return balance ? balance.amount : 0;
+  const balance = wallet?.balance?.find(
+    b => b.isSynthetic !== true && (b.chain + '.' + b.ticker.toUpperCase() === token.identifier.toUpperCase() || b.chain + '.' + b.symbol.toUpperCase() === token.identifier.toUpperCase()))
+    || wallet?.balance?.find(b => b.isSynthetic === true && b.symbol.toUpperCase() === token.identifier.toUpperCase());  if(!balance){
+    console.log('Token balance not found', wallet.balance, token);
+    return 0;
+  }
+
+  // Use formatBalance to handle BigInt conversion properly
+  if (typeof balance === 'object' && balance.bigIntValue) {
+    // If balance is an object with BigInt values, format it properly
+    return Number(balance.bigIntValue) / Number(balance.decimalMultiplier);
+  }
+  
+  // Otherwise return the balance directly
+  return balance || 0;
 };
 
+
+export const formatTokenBalance = (token, wallets) => {
+  if (!token) return '0';
+
+  const balance = getTokenBalance(token, wallets);
+  const usdValue = balance * (token.usdValue || 0);
+  return formatBalanceWithUSD(balance, usdValue);
+
+};
 
 
 // Column definitions with parsing/validation
@@ -75,12 +101,7 @@ export const COLUMN_MAPPING = {
       return { color: 'amber', tooltip: row.status || 'Quote required' };
     }
   },
-  swapid: {
-    title: 'Swap ID',
-    editor: 'readonly',
-    compact: true,
-    iniField: 'swapid',
-  },
+
   fromToken: {
     iniField: 'token_from',
     title: 'From Token',
@@ -103,10 +124,10 @@ export const COLUMN_MAPPING = {
     compact: true,
     format: (value, row) => {
       if (!row?.fromToken?.balance) return '0';
-      // Format the balance based on the token's decimal multiplier
+      // Use the current fromToken for balance name
       const balance = Number(row.fromToken.balance.bigIntValue) / Number(row.fromToken.balance.decimalMultiplier);
       const usdValue = balance * (row.fromToken.usdValue || 0);
-      return formatBalanceWithUSD(balance, usdValue);
+      return `${balance.toFixed(6)} ${row.fromToken.symbol || row.fromToken.ticker} (${usdValue.toFixed(2)} USD)`;
     }
   },
   toToken: {
@@ -117,17 +138,32 @@ export const COLUMN_MAPPING = {
     parse: (value) => value?.identifier,
     format: (value) => value?.identifier || value
   },
+  expectedOut: {
+    title: 'Expected Out',
+    editor: 'readonly',
+    compact: true,
+    format: (value) => value
+  },
   currentOutBalance: {
     title: 'Balance',
     editor: 'readonly',
     compact: true,
     format: (value, row) => {
       if (!row?.toToken?.balance) return '0';
+      // Use the current toToken for balance name
       const balance = Number(row.toToken.balance.bigIntValue) / Number(row.toToken.balance.decimalMultiplier);
       const usdValue = balance * (row.toToken.usdValue || 0);
-      return formatBalanceWithUSD(balance, usdValue);
+      return `${balance.toFixed(6)} ${row.toToken.symbol || row.toToken.ticker} (${usdValue.toFixed(2)} USD)`;
     }
   },
+  routes: {
+    title: 'Routes',
+    editor: 'select',
+    compact: true,
+    format: (value) => value
+  },
+
+
   slippage: {
     iniField: 'slippage',
     title: 'Slippage',
@@ -153,12 +189,7 @@ export const COLUMN_MAPPING = {
     compact: false,
     validate: (value) => /^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/.test(value)
   },
-  expectedOut: {
-    title: 'Expected Out',
-    editor: 'readonly',
-    compact: true,
-    format: (value) => value
-  },
+
 
   gasAsset: {
     title: 'Gas Asset',
@@ -168,6 +199,43 @@ export const COLUMN_MAPPING = {
       if(!row || !row.fromToken) return '';
       const gasAsset = getGasAsset({chain: row?.fromToken?.chain});
       return gasAsset?.chain + '.' + gasAsset?.symbol;
+    }
+  },
+  gasFee: {
+    title: 'Gas Fee',
+    editor: 'readonly',
+    compact: true,
+    format: (value, row) => {
+      if (!row?.route) return '';
+      if (!row.route.providers) return '';
+      // For Thorchain/Maya routes, calculate total gas cost
+      if (row.route.providers.some(p => ['THORCHAIN', 'THORCHAIN_STREAMING', 'MAYACHAIN', 'MAYACHAIN_STREAMING'].includes(p))) {
+        const gas = row.route.fees?.gas;
+        if (gas) {
+          if (gas.units === 'satsperbyte') {
+            // Estimate tx size (typical Bitcoin tx size)
+            const estimatedTxSize = 250; // bytes
+            const totalSats = gas.recommendedRate * estimatedTxSize;
+            return `${(totalSats / 1e8).toFixed(8)} BTC`;
+          }
+          // Gas cost in native token for EVM chains
+          if (gas.units === 'gwei') {
+            // Estimate gas units needed (typical ERC20 transfer)
+            const estimatedGasUnits = 65000;
+            const totalGwei = gas.recommendedRate * estimatedGasUnits;
+            return `${(totalGwei / 1e9).toFixed(6)} ETH`;
+          }
+          return `${gas.recommendedRate} ${gas.units}`;
+        }
+      }
+
+      // For other routes
+      if (typeof row.route.gasFee === 'undefined') return '';
+
+      const gasAsset = getGasAsset({ chain: row.fromToken?.chain });
+      if (!gasAsset) return row.route.gasFee;
+
+      return `${row.route.gasFee} ${gasAsset.symbol}`;
     }
   },
   gasBalance: {
@@ -212,42 +280,12 @@ export const COLUMN_MAPPING = {
       return row?.route ? '1' : (value || '');
     }
   },
-  gasFee: {
-    title: 'Gas Fee',
+
+  swapid: {
+    title: 'Swap ID',
     editor: 'readonly',
-    compact: true,
-    format: (value, row) => {
-      if (!row?.route) return '';
-      if (!row.route.providers) return '';
-      // For Thorchain/Maya routes, calculate total gas cost
-      if (row.route.providers.some(p => ['THORCHAIN', 'THORCHAIN_STREAMING', 'MAYACHAIN', 'MAYACHAIN_STREAMING'].includes(p))) {
-        const gas = row.route.fees?.gas;
-        if (gas) {
-          if (gas.units === 'satsperbyte') {
-            // Estimate tx size (typical Bitcoin tx size)
-            const estimatedTxSize = 250; // bytes
-            const totalSats = gas.recommendedRate * estimatedTxSize;
-            return `${(totalSats / 1e8).toFixed(8)} BTC`;
-          }
-          // Gas cost in native token for EVM chains
-          if (gas.units === 'gwei') {
-            // Estimate gas units needed (typical ERC20 transfer)
-            const estimatedGasUnits = 65000;
-            const totalGwei = gas.recommendedRate * estimatedGasUnits;
-            return `${(totalGwei / 1e9).toFixed(6)} ETH`;
-          }
-          return `${gas.recommendedRate} ${gas.units}`;
-        }
-      }
-
-      // For other routes
-      if (typeof row.route.gasFee === 'undefined') return '';
-      
-      const gasAsset = getGasAsset({chain: row.fromToken?.chain});
-      if (!gasAsset) return row.route.gasFee;
-
-      return `${row.route.gasFee} ${gasAsset.symbol}`;
-    }
+    compact: false,
+    iniField: 'swapid',
   },
 };
 
@@ -422,33 +460,16 @@ export const isStreamingField = (field) => {
   return field === 'streamingInterval' || field === 'streamingNumSwaps';
 };
 
-// Update handleCellUpdate to handle streaming parameters
-export const handleCellUpdate = async (row, field, value, setRows) => {
-  // ...existing code...
+// Add helper to check if row can be quoted
+export const canGetQuote = (row) => {
+  return row.fromToken && 
+         row.toToken && 
+         row.amountIn && 
+         !isNaN(row.amountIn) && 
+         parseFloat(row.amountIn) > 0;
+};
 
-  // For streaming parameters, trigger requote if manually edited
-  if (field === 'streamingInterval' || field === 'streamingNumSwaps') {
-    setRows(current => 
-      current.map(r => 
-        r.swapid === row.swapid 
-          ? {
-              ...r,
-              [field]: value,
-              iniData: newIniData,
-              status: 'Quote Required - Streaming Parameters Changed',
-              // Clear route but preserve other data
-              route: {
-                ...r.route,
-                streamingSwap: true,
-                streamingBlocks: field === 'streamingInterval' ? value : r.streamingInterval,
-                streamingQuantity: field === 'streamingNumSwaps' ? value : r.streamingNumSwaps
-              }
-            }
-          : r
-      )
-    );
-    return;
-  }
-
-  // ...rest of existing code...
+// Add helper to check if field affects quote
+export const isQuoteField = (field) => {
+  return ['fromToken', 'toToken', 'amountIn', 'slippage', 'streamingInterval', 'streamingNumSwaps'].includes(field);
 };

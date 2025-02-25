@@ -6,7 +6,7 @@ import { parseIniData } from './helpers/handlers';
 import './styles/Exora.css';
 import { getQuotes } from './helpers/quotes';
 import { handleSwap } from './helpers/handlers';
-import { COLUMN_MAPPING, updateIniField, validateField, isStreamingField } from './helpers/swapini';
+import { COLUMN_MAPPING, updateIniField, isQuoteField, canGetQuote, getTokenBalance, formatTokenBalance } from './helpers/swapini';
 import { HeaderCell, LetterCell, ActionButton, SpreadsheetContainer, customStyles, EditBar, EditInput, RowNumber, InnerScrollContainer, OuterScrollContainer, EditInputBase, EditSelect } from './styles/Exora';
 import TokenChooserDialog from './TokenChooserDialog';
 import { FaEllipsisH } from 'react-icons/fa';
@@ -20,11 +20,12 @@ import { SwapKitApi } from "@swapkit/api";
 import { fetchTokenPrices, fetchMultipleTokenPrices } from './includes/tokenUtils';
 import useExoraColumns from './hooks/useExoraColumns';
 import useExoraActions from './hooks/useExoraActions';
-import { copyToCSV, generateIni, handleClipboardPaste } from './helpers/clipboard';
-import { saveToFile, loadFromFile } from './helpers/fileOps';
+import { copyToCSV, generateIni, handleClipboardPaste} from './helpers/clipboard';
+import { saveToFile, loadFromFile, parseCsvRow  } from './helpers/fileOps';
+import { formatBalance, formatBalanceWithUSD } from './helpers/transaction';
 
 // Add this helper function near the top with other utility functions
-const hasData = (row) => {
+export const hasData = (row) => {
   if (!row || row.isEmpty) return false;
 
   return Object.entries(COLUMN_MAPPING)
@@ -67,7 +68,8 @@ const getActiveChains = (rows) => {
   return Array.from(chains);
 };
 
-const initialRowState = {
+// Export initialRowState so it can be imported by other modules
+export const initialRowState = {
   swapid: null,
   iniData: '',
   route: null,
@@ -90,6 +92,44 @@ const initialRowState = {
 
 const EMPTY_ROW_COUNT = 25;
 
+// Add this near the top with other utility functions
+const rateLimiter = {
+  lastCall: 0,
+  minDelay: 2000, // 2 seconds between calls
+  async waitForNext() {
+    const now = Date.now();
+    const timeSinceLastCall = now - this.lastCall;
+    if (timeSinceLastCall < this.minDelay) {
+      await new Promise(resolve => setTimeout(resolve, this.minDelay - timeSinceLastCall));
+    }
+    this.lastCall = Date.now();
+  }
+};
+
+// Move updateBalances function definition up here, before the component
+const updateBalances = async (row, walletBalances, wallets) => {
+  if (!row || !row.fromToken || !row.toToken || row.isEmpty) return null;
+
+  const fromChain = row.fromToken.chain;
+  const toChain = row.toToken.chain;
+  const gasAsset = getGasAsset({ chain: fromChain });
+
+  return {
+    ...row,
+    fromToken: {
+      ...row.fromToken,
+      balance: getTokenBalance(row.fromToken, wallets),
+      usdValue: walletBalances[fromChain]?.prices?.[row.fromToken.identifier.toLowerCase()] || 0
+    },
+    toToken: {
+      ...row.toToken,
+      balance: getTokenBalance(row.toToken, wallets),
+      usdValue: walletBalances[toChain]?.prices?.[row.toToken.identifier.toLowerCase()] || 0
+    },
+    gasAsset: gasAsset,
+    gasBalance: getTokenBalance(gasAsset, wallets)
+  };
+};
 
 const Exora = ({ providerKey, windowId, programData, onOpenWindow, onMenuAction, windowA, windowName, }) => {
   const { skClient, tokens, wallets, chainflipBroker, refreshBalance } = useWindowSKClient(providerKey);
@@ -116,6 +156,19 @@ const Exora = ({ providerKey, windowId, programData, onOpenWindow, onMenuAction,
   const selectedRowRef = useRef(null);
   const rowsRef = useRef(null);
   const handleMenuActionRef = useRef(null);
+  const walletsRef = useRef(wallets);
+
+  // Move useExoraActions hook before handleCellUpdate
+  const { handleQuote, handleExecute } = useExoraActions({
+    rows,
+    setRows,
+    skClient,
+    wallets,
+    tokens,
+    chainflipBroker,
+    onOpenWindow,
+    handleSwap  // Add handleSwap to the props
+  });
 
   // Update ensureSelection to preserve cell selection when reselecting row
   const ensureSelection = useCallback((row, field) => {
@@ -439,7 +492,6 @@ const Exora = ({ providerKey, windowId, programData, onOpenWindow, onMenuAction,
       editMode: true,
       onSave: (newIniData, otherData) => {
         setRows(current => {
-          // Find row positions
           const currentIndex = current.findIndex(r => r.swapid === row.swapid);
           if (currentIndex === -1) return current;
 
@@ -455,41 +507,6 @@ const Exora = ({ providerKey, windowId, programData, onOpenWindow, onMenuAction,
             status: 'Ready',
             swapid: row.swapid
           };
-
-          // Check next row
-          const nextRow = updatedRows[currentIndex + 1];
-          if (nextRow) {
-            console.log('nextRow', nextRow);
-            if (nextRow.isEmpty) {
-              // Insert new row with output values
-              updatedRows[currentIndex + 1] = {
-                ...initialRowState,
-                swapid: Date.now(),
-                iniData: `token_from=${otherData.swapTo?.identifier}\namount=${otherData.expectedOut}`,
-                fromToken: otherData.swapTo,
-                amountIn: otherData.expectedOut,
-                status: 'New'
-              };
-            } else if (nextRow.fromToken === otherData.swapTo) {
-              // Update existing row amount
-              updatedRows[currentIndex + 1] = {
-                ...nextRow,
-                iniData: nextRow.iniData.replace(/amount=.*/, `amount=${otherData.expectedOut}`),
-                amountIn: otherData.expectedOut
-              };
-            }
-          } else {
-            updatedRows.push(
-              {
-                ...initialRowState,
-                swapid: Date.now(),
-                iniData: `token_from=${otherData.swapTo?.identifier}\namount=${otherData.expectedOut}`,
-                fromToken: otherData.swapTo,
-                amountIn: otherData.expectedOut,
-                status: 'New'
-              }
-            );
-          }
 
           return updatedRows;
         });
@@ -552,7 +569,9 @@ const Exora = ({ providerKey, windowId, programData, onOpenWindow, onMenuAction,
     }
   }, [selectedRow?.swapid, selectedCell]);
 
-
+  useEffect(() => { 
+    walletsRef.current = wallets;
+  }, [wallets]);
 
   const handleMenuAction = useCallback((action) => {
     console.log('handleMenuAction', action, rows);
@@ -568,32 +587,56 @@ const Exora = ({ providerKey, windowId, programData, onOpenWindow, onMenuAction,
         break;
       }
       case 'copyRow': {
-        if (currentRow) {
-          navigator.clipboard.writeText(JSON.stringify(currentRow));
-        }
+        // Copy the row's iniData (in ini style) instead of serializing the entire object
+        const copiedData = selectedRow?.iniData || "";
+        navigator.clipboard.writeText(copiedData);
         break;
       }
       case 'copyAll': {
-        const validRows = currentRows.filter(r => !r.isEmpty);
+        const validRows = currentRows.filter(r => !r.isEmpty && hasData(r)); // Only copy non-empty rows
         // For CSV saving, exclude metadata by passing false as third parameter
         const csv = copyToCSV(validRows, COLUMN_MAPPING, false);
         navigator.clipboard.writeText(csv);
         break;
       }
       case 'paste': {
-        const firstEmptyRow = currentRows.find(r => r.isEmpty);
-        if (firstEmptyRow) {
+        navigator.clipboard.readText().then((clipboardText) => {
+          if (!clipboardText.trim()) return;
+          let newRows = [];
 
-          handleClipboardPaste(currentRows, firstEmptyRow, tokens, setRows, COLUMN_MAPPING);
-        } else {
-          // Add new row
-          const newRow = {
-            ...initialRowState,
-            swapid: Date.now()
-          };
-          setRows(current => [...current, newRow]);
-          handleClipboardPaste(currentRows, newRow, tokens, setRows, COLUMN_MAPPING);
-        }
+          if (clipboardText.includes('=') && clipboardText.includes('\n')) {
+            // Handle INI format
+            newRows = [{ 
+              ...initialRowState,
+              iniData: clipboardText,
+              swapid: Date.now(),
+              isEmpty: false
+            }];
+          } else if (clipboardText.includes(',')) {
+            // Parse CSV format - returns array of rows
+            newRows = parseCsvRow(clipboardText, COLUMN_MAPPING, tokens).map(rowData => ({
+              ...initialRowState,
+              ...rowData,
+              swapid: Date.now() + Math.random(),
+              isEmpty: false
+            }));
+          }
+
+          if (newRows.length > 0) {
+            // If selected row is empty, replace it, otherwise add new rows
+            if (selectedRow?.isEmpty) {
+              setRows(current => [
+                ...current.slice(0, current.findIndex(r => r.swapid === selectedRow.swapid)),
+                ...newRows,
+                ...current.slice(current.findIndex(r => r.swapid === selectedRow.swapid) + 1)
+              ]);
+            } else {
+              setRows(current => [...current, ...newRows]);
+            }
+            // Select the first new row
+            ensureSelection(newRows[0], selectedCell);
+          }
+        });
         break;
       }
       case 'deleteRow': {
@@ -669,7 +712,7 @@ const Exora = ({ providerKey, windowId, programData, onOpenWindow, onMenuAction,
       default:
         break;
     }
-  }, [rows, selectedRow, selectedCell, setCompactView]);
+  }, [rows, selectedRow, selectedCell, setCompactView, setRows, ensureSelection, tokens]);
 
 
   const menu = useMemo(
@@ -704,166 +747,193 @@ const Exora = ({ providerKey, windowId, programData, onOpenWindow, onMenuAction,
   );
 
 
-  // Update cell handler
-  const handleCellUpdate = async (row, field, value) => {
-    // Get latest row data
-    const currentRow = rows.find(r => r.swapid === row.swapid);
-    if (!currentRow) return;
+  // Replace updateBalances function
+  const updateBalances = async (row) => {
+    if (!row || !row.fromToken || !row.toToken || row.isEmpty) return null;
 
-    // If manually editing streaming parameters, clear route data
-    if (isStreamingField(field)) {
+    const fromChain = row.fromToken.chain;
+    const toChain = row.toToken.chain;
+    const gasAsset = getGasAsset({ chain: fromChain });
+
+    // Use cached balances if available and fresh
+    const fromWalletData = walletBalances[fromChain];
+    const toWalletData = walletBalances[toChain];
+    const now = Date.now();
+
+    if (!fromWalletData || !toWalletData ||
+      now - fromWalletData.timestamp > 60000 ||
+      now - toWalletData.timestamp > 60000) {
+      return row;
+    }
+
+    // Find the right wallet and balance for each token
+    const fromBalance = fromWalletData.balance.find(b =>
+      (b.isSynthetic !== true &&
+        (b.chain + '.' + b.ticker.toUpperCase() === row.fromToken.identifier.toUpperCase() ||
+          b.chain + '.' + b.symbol.toUpperCase() === row.fromToken.identifier.toUpperCase())) ||
+      (b.isSynthetic === true && b.symbol.toUpperCase() === row.fromToken.identifier.toUpperCase())
+    );
+
+    const toBalance = toWalletData.balance.find(b =>
+      (b.isSynthetic !== true &&
+        (b.chain + '.' + b.ticker.toUpperCase() === row.toToken.identifier.toUpperCase() ||
+          b.chain + '.' + b.symbol.toUpperCase() === row.toToken.identifier.toUpperCase())) ||
+      (b.isSynthetic === true && b.symbol.toUpperCase() === row.toToken.identifier.toUpperCase())
+    );
+
+    // Apply cached balances and prices
+    const newRow = {
+      ...row,
+      fromToken: {
+        ...row.fromToken,
+        balance: fromBalance || null,
+        usdValue: fromWalletData.prices[row.fromToken.identifier.toLowerCase()] || 0
+      },
+      toToken: {
+        ...row.toToken,
+        balance: toBalance || null,
+        usdValue: toWalletData.prices[row.toToken.identifier.toLowerCase()] || 0
+      }
+    };
+
+    // Add gas balance if needed
+    if (gasAsset) {
+      const gasId = `${gasAsset.chain}.${gasAsset.symbol}`.toLowerCase();
+      const gasBalance = fromWalletData.balance.find(b =>
+        b.chain === gasAsset.chain &&
+        (b.symbol === gasAsset.symbol || b.ticker === gasAsset.symbol)
+      );
+      newRow.gasBalance = gasBalance || null;
+      newRow.gasToken = {
+        ...gasAsset,
+        balance: gasBalance,
+        usdValue: fromWalletData.prices[gasId] || 0
+      };
+    }
+
+    return newRow;
+  };
+
+  // Move cell update logic to component level
+const handleCellUpdate = useCallback(async (row, field, value) => {
+  // Get latest row data and update token balances immediately if token changed
+  const currentRow = rows.find(r => r.swapid === row.swapid);
+  if (!currentRow) return;
+
+  // Special handling for token selection
+  if (field === 'fromToken' || field === 'toToken') {
+    // Update the token first
+    setRows(current => 
+      current.map(r => r.swapid === currentRow.swapid 
+        ? { ...r, [field]: value }
+        : r
+      )
+    );
+    
+
+
+
+    // Then immediately fetch updated balances
+    const updatedBalances = await updateBalances(
+      { ...currentRow, [field]: value },
+      walletBalances,
+      refreshBalance
+    );
+    
+    if (updatedBalances) {
       setRows(current =>
-        current.map(r =>
-          r.swapid === currentRow.swapid
-            ? {
+        current.map(r => r.swapid === currentRow.swapid
+          ? {
               ...r,
-              [field]: value,
-              iniData: updateIniField(r.iniData, COLUMN_MAPPING[field].iniField, value),
-              route: null,
-              selectedRoute: null,
-              routes: [],
-              expectedOut: '',
-              status: 'Quote Required - Streaming Parameters Changed'
+              fromToken: field === 'fromToken' ? {
+                ...value,
+                balance: updatedBalances.fromToken?.balance,
+                usdValue: updatedBalances.fromToken?.usdValue
+              } : r.fromToken,
+              toToken: field === 'toToken' ? {
+                ...value,
+                balance: updatedBalances.toToken?.balance,
+                usdValue: updatedBalances.toToken?.usdValue
+              } : r.toToken,
+              gasBalance: updatedBalances.gasBalance
             }
-            : r
+          : r
         )
       );
-      return;
     }
+  }
 
-    if (field === 'routes') {
-      // Handle optimal route selection
-      if (value === 'optimal') {
-        const optimalRoute = currentRow.routes?.find(r => r.optimal) || currentRow.routes?.[0];
-        if (optimalRoute) {
-          setRows(current =>
-            current.map(r =>
-              r.swapid === currentRow.swapid
-                ? {
-                  ...r,
-                  selectedRoute: 'optimal',
-                  route: optimalRoute,
-                  expectedOut: optimalRoute.expectedBuyAmount,
-                  gasFee: COLUMN_MAPPING.gasFee.format(null, { route: optimalRoute, fromToken: r.fromToken }),
-                  // For streaming parameters, preserve manually set values if they exist
-                  streamingInterval: optimalRoute.streamingBlocks || r.streamingInterval || 0,
-                  streamingNumSwaps: optimalRoute.streamingQuantity || r.streamingNumSwaps || 0,
-                  // Update INI data with streaming parameters
-                  iniData: updateIniField(
-                    updateIniField(r.iniData, 
-                      'streaming_interval', 
-                      optimalRoute.streamingBlocks || r.streamingInterval || 0
-                    ),
-                    'streaming_num_swaps',
-                    optimalRoute.streamingQuantity || r.streamingNumSwaps || 0
-                  )
-                }
-                : r
-            )
-          );
-        }
-        setEditValue('optimal');
-        return;
-      }
+  const mapping = COLUMN_MAPPING[field];
 
-      // Find exact matching route by providers
-      const newRoute = currentRow.routes?.find(r => r.providers.join(', ') === value);
-      if (newRoute) {
-        console.log('Selected route:', newRoute);
-        setRows(current =>
-          current.map(r =>
-            r.swapid === currentRow.swapid
-              ? {
-                ...r,
-                selectedRoute: value,
-                route: newRoute,
-                expectedOut: newRoute.expectedBuyAmount,
-                gasFee: COLUMN_MAPPING.gasFee.format(null, { route: newRoute, fromToken: r.fromToken }),
-                // Add streaming parameters if available
-                streamingInterval: newRoute.streamingBlocks || r.streamingInterval,
-                streamingNumSwaps: newRoute.streamingQuantity || r.streamingNumSwaps
-              }
-              : r
-          )
-        );
-      }
-      return;
-    }
+  if(!mapping) {
+    console.error('Invalid field:', field);
+    return;
+  }
 
-    // For all other fields, clear route-related data
-    const mapping = COLUMN_MAPPING[field];
-    if (!mapping) return;
-    if (mapping.editor === 'readonly') return;
+  let newValue = value;
 
-    try {
-      switch (mapping.editor) {
-        case 'tokenSelect':
-          const token = await onOpenWindow('tokenchooser.exe', {
-            modal: true,
-            tokens
-          });
-          if (!token) return;
-          value = token;
-          break;
+  // Handle token selection differently  
+  if (mapping?.editor === 'tokenSelect') {
+    newValue = value; // Keep the full token object
+  } else if (mapping?.parse) {
+    newValue = mapping.parse(value);
+  }
 
-        case 'number':
-          value = parseFloat(value);
-          if (isNaN(value)) return;
-          if (mapping.range) {
-            const [min, max] = mapping.range;
-            value = Math.max(min, Math.min(max, value));
-          }
-          break;
+  // Handle streaming parameters
+  const isStreamingUpdate = field === 'streamingInterval' || field === 'streamingNumSwaps';
+  const clearRouteData = isQuoteField(field) && !isStreamingUpdate;
 
-        case 'select':
-          if (!mapping.options.includes(value)) return;
-          break;
+  // Update INI data
+  const newIniData = updateIniField(currentRow.iniData, mapping.iniField, 
+    mapping.editor === 'tokenSelect' ? value?.identifier : value);
 
-        case 'address':
-          if (!validateField(field, value)) return;
-          break;
-      }
-
-      // Update INI data
-      const newIniData = updateIniField(currentRow.iniData, mapping.iniField, mapping.parse(value));
-
-      // Update row state with cleared route data
-      setRows(current =>
-        current.map(r =>
-          r.swapid === currentRow.swapid
-            ? {
-              ...r,
-              [field]: value,
-              iniData: newIniData,
-              // Clear route-related data
+  // Update row state with new value
+  setRows(current => 
+    current.map(r => 
+      r.swapid === currentRow.swapid 
+        ? {
+            ...r,
+            [field]: newValue,
+            iniData: newIniData,
+            // Clear route data only if it's a non-streaming quote field
+            ...(clearRouteData ? {
               routes: [],
               route: null,
               selectedRoute: null,
               expectedOut: '',
               gasFee: '',
-              status: field === 'amountIn' ? 'Amount Updated' : 'Quote Required'
-            }
-            : r
-        )
-      );
+              status: 'Quote Required'
+            } : isStreamingUpdate ? {
+              // For streaming updates, preserve route but mark for requote
+              status: 'Quote Required - Streaming Parameters Changed',
+              route: r.route ? {
+                ...r.route,
+                streamingSwap: true,
+                streamingBlocks: field === 'streamingInterval' ? newValue : r.streamingInterval,
+                streamingQuantity: field === 'streamingNumSwaps' ? newValue : r.streamingNumSwaps
+              } : null
+            } : {})
+          }
+        : r
+    )
+  );
 
-      // Update selectedRow to trigger refresh
-      setSelectedRow(prev => ({
-        ...prev,
-        [field]: value,
-        iniData: newIniData,
-        routes: [],
-        route: null,
-        selectedRoute: null,
-        expectedOut: '',
-        gasFee: '',
-        status: field === 'amountIn' ? 'Amount Updated' : 'Quote Required'
-      }));
+  // Get updated row
+  const updatedRow = {...currentRow, [field]: newValue};
 
-    } catch (error) {
-      console.error(`Error updating cell ${field}:`, error);
-    }
-  };
+  // Auto-quote if required fields are present
+  if ((isQuoteField(field) || isStreamingUpdate) && canGetQuote(updatedRow)) {
+    // Small delay to allow UI to update
+    setTimeout(() => {
+      const freshRow = rows.find(r => r.swapid === updatedRow.swapid);
+      if (freshRow) {
+        handleQuote(freshRow);
+      }
+    }, 100);
+  }
+}, [rows, handleQuote, updateBalances]); // Add other deps as needed
+
+
 
   // Memoize handleCellSelect
   const handleCellSelect = useCallback((row, field) => {
@@ -901,15 +971,53 @@ const Exora = ({ providerKey, windowId, programData, onOpenWindow, onMenuAction,
 
   // Replace handleTokenSelect and related functions
   const handleTokenSelect = useCallback((token, currentTokenSetter, closeTokenDialog) => {
+    const wallets = walletsRef.current;
     if (currentTokenSetter) {
-      currentTokenSetter(token);
-      // Re-select current cell after token update
-      setTimeout(() => {
-        ensureSelection(selectedRow, selectedCell);
-      }, 0);
+      // First update the token with its balance
+      const tokenWithBalance = {
+        ...token,
+        balance: getTokenBalance(token, wallets)
+      };
+      
+      currentTokenSetter(tokenWithBalance);
+      
+      const currentRow = rows.find(r => r.swapid === selectedRow?.swapid);
+      if (currentRow) {
+        const updatedField = selectedCell;
+        
+        // Update the row with the new token and its balance
+        setRows(prev => prev.map(r => 
+          r.swapid === currentRow.swapid 
+            ? {
+                ...r,
+                [updatedField]: tokenWithBalance,
+                ...(updatedField === 'toToken' && {
+                  destinationAddress: chooseWalletForToken(token, wallets)?.address || r.destinationAddress,
+                  iniData: updateIniField(r.iniData, 'destination', 
+                    chooseWalletForToken(token, wallets)?.address || r.destinationAddress)
+                }),
+                updateKey: Date.now(),
+                gasBalance: updatedField === 'fromToken' ? 
+                  getTokenBalance(getGasAsset({ chain: token.chain }), wallets) : 
+                  r.gasBalance
+              }
+            : r
+        ));
+
+        // If we have enough info for a quote, trigger it
+        if (canGetQuote({
+          ...currentRow,
+          [updatedField]: tokenWithBalance
+        })) {
+          setTimeout(() => handleQuote({
+            ...currentRow,
+            [updatedField]: tokenWithBalance
+          }), 100);
+        }
+      }
     }
     closeTokenDialog();
-  }, [selectedRow, selectedCell, ensureSelection]);
+  }, [selectedRow?.swapid, selectedCell, rows, setRows, wallets, handleQuote]);
 
   const handleNumberInput = (row, field, value) => {
     const mapping = COLUMN_MAPPING[field];
@@ -1075,12 +1183,39 @@ const Exora = ({ providerKey, windowId, programData, onOpenWindow, onMenuAction,
     }
   }, [rows, setEditValue, setSelectedRow, setSelectedCell, setIsEditing, setIsTokenDialogOpen]);
 
-  const commitEdit = () => {
-    if (!isEditing || !selectedRow || !selectedCell) return;
+const commitEdit = () => {
+  if (!isEditing || !selectedRow || !selectedCell) return;
+  
+  // Special handling for routes (no column mapping exists)
+  if (selectedCell === 'routes') {
     handleCellUpdate(selectedRow, selectedCell, editValue);
-    // Don't set editValue here since we'll get it from getSelectedValue next time
     editBlur();
-  };
+    return;
+  }
+  
+  const mapping = COLUMN_MAPPING[selectedCell];
+  if (!mapping) {
+    console.warn(`No mapping found for field: ${selectedCell}`);
+    return;
+  }
+  
+  if (mapping.editor === 'number') {
+    const num = parseFloat(editValue);
+    if (isNaN(num)) {
+      console.warn('Invalid number input');
+      return;
+    }
+    if (mapping.range) {
+      const [min, max] = mapping.range;
+      if (num < min || num > max) {
+        console.warn(`Number out of range [${min}, ${max}]`);
+        return;
+      }
+    }
+  }
+  handleCellUpdate(selectedRow, selectedCell, editValue);
+  editBlur();
+};
 
   const cancelEdit = () => {
     setIsEditing(false);
@@ -1092,9 +1227,12 @@ const Exora = ({ providerKey, windowId, programData, onOpenWindow, onMenuAction,
       setIsEditing(false);
 
       editInputRef.current.blur();
-      //focus back on the cell
-      document.querySelector('.cell_' + selectedCell + '_' + selectedRow.swapid).focus();
-
+      try{
+        //focus back on the cell
+        document.querySelector('.cell_' + selectedCell + '_' + selectedRow.swapid).focus();
+      } catch (error) {
+        console.error('Error focusing cell:', error);
+      }
     }
   };
 
@@ -1111,14 +1249,23 @@ const Exora = ({ providerKey, windowId, programData, onOpenWindow, onMenuAction,
   const handleEditChange = (e) => {
     const newValue = e.target.value;
     setEditValue(newValue);
-
-    // Immediately commit changes for route selection
+  
+    // Only handle routes selection immediately
     if (selectedCell === 'routes') {
       handleCellUpdate(selectedRow, selectedCell, newValue);
       // Ensure the select element reflects the current value
       if (editInputRef.current) {
         editInputRef.current.value = newValue;
       }
+      return;
+    }
+  
+    // For other fields, just update the edit value
+    // Validation will happen on commitEdit
+    const mapping = COLUMN_MAPPING[selectedCell];
+    if (!mapping) {
+      console.warn(`No mapping found for field: ${selectedCell}`);
+      return;
     }
   };
 
@@ -1174,73 +1321,6 @@ const Exora = ({ providerKey, windowId, programData, onOpenWindow, onMenuAction,
     }
   };
 
-  // Replace updateBalances function
-  const updateBalances = async (row) => {
-    if (!row || !row.fromToken || !row.toToken || row.isEmpty) return null;
-
-    const fromChain = row.fromToken.chain;
-    const toChain = row.toToken.chain;
-    const gasAsset = getGasAsset({ chain: fromChain });
-
-    // Use cached balances if available and fresh
-    const fromWalletData = walletBalances[fromChain];
-    const toWalletData = walletBalances[toChain];
-    const now = Date.now();
-
-    if (!fromWalletData || !toWalletData ||
-      now - fromWalletData.timestamp > 60000 ||
-      now - toWalletData.timestamp > 60000) {
-      return row;
-    }
-
-    // Find the right wallet and balance for each token
-    const fromBalance = fromWalletData.balance.find(b =>
-      (b.isSynthetic !== true &&
-        (b.chain + '.' + b.ticker.toUpperCase() === row.fromToken.identifier.toUpperCase() ||
-          b.chain + '.' + b.symbol.toUpperCase() === row.fromToken.identifier.toUpperCase())) ||
-      (b.isSynthetic === true && b.symbol.toUpperCase() === row.fromToken.identifier.toUpperCase())
-    );
-
-    const toBalance = toWalletData.balance.find(b =>
-      (b.isSynthetic !== true &&
-        (b.chain + '.' + b.ticker.toUpperCase() === row.toToken.identifier.toUpperCase() ||
-          b.chain + '.' + b.symbol.toUpperCase() === row.toToken.identifier.toUpperCase())) ||
-      (b.isSynthetic === true && b.symbol.toUpperCase() === row.toToken.identifier.toUpperCase())
-    );
-
-    // Apply cached balances and prices
-    const newRow = {
-      ...row,
-      fromToken: {
-        ...row.fromToken,
-        balance: fromBalance || null,
-        usdValue: fromWalletData.prices[row.fromToken.identifier.toLowerCase()] || 0
-      },
-      toToken: {
-        ...row.toToken,
-        balance: toBalance || null,
-        usdValue: toWalletData.prices[row.toToken.identifier.toLowerCase()] || 0
-      }
-    };
-
-    // Add gas balance if needed
-    if (gasAsset) {
-      const gasId = `${gasAsset.chain}.${gasAsset.symbol}`.toLowerCase();
-      const gasBalance = fromWalletData.balance.find(b =>
-        b.chain === gasAsset.chain &&
-        (b.symbol === gasAsset.symbol || b.ticker === gasAsset.symbol)
-      );
-      newRow.gasBalance = gasBalance || null;
-      newRow.gasToken = {
-        ...gasAsset,
-        balance: gasBalance,
-        usdValue: fromWalletData.prices[gasId] || 0
-      };
-    }
-
-    return newRow;
-  };
-
   // ...rest of existing code...
 
   function safeStringify(obj) {
@@ -1289,30 +1369,37 @@ const Exora = ({ providerKey, windowId, programData, onOpenWindow, onMenuAction,
         console.log('failed to get prices');
         return;
       }
-      const priceMap = tokenPrices.reduce((acc, item) => {
-        acc[item.identifier.toLowerCase()] = item.price_usd;
-        return acc;
-      }, {});
+      
+      try{
 
-      // Update balances for each chain using refreshBalance
-      for (const chain of chainsToUpdate) {
-        await rateLimiter.waitForNext();
-        await refreshBalance(chain);
+        const priceMap = tokenPrices.reduce((acc, item) => {
+          acc[item.identifier.toLowerCase()] = item.price_usd;
+          return acc;
+        }, {});
 
-        setWalletBalances(prev => ({
-          ...prev,
-          [chain]: {
-            balance: wallets.find(w => w.chain === chain)?.balance || [],
-            prices: priceMap,
-            timestamp: now
-          }
-        }));
+        // Update balances for each chain using refreshBalance
+        for (const chain of chainsToUpdate) {
+          await rateLimiter.waitForNext();
+          await refreshBalance(chain);
 
-        setLastWalletUpdate(prev => ({
-          ...prev,
-          [chain]: now
-        }));
+          setWalletBalances(prev => ({
+            ...prev,
+            [chain]: {
+              balance: wallets.find(w => w.chain === chain)?.balance || [],
+              prices: priceMap,
+              timestamp: now
+            }
+          }));
+
+          setLastWalletUpdate(prev => ({
+            ...prev,
+            [chain]: now
+          }));
+        }
+      } catch (error) {
+        console.error('Failed to update wallet balances:', error);
       }
+
     };
 
     refreshWalletBalances();
@@ -1466,17 +1553,9 @@ const Exora = ({ providerKey, windowId, programData, onOpenWindow, onMenuAction,
     setSelectedCell,
     setCurrentTokenSetter,
     updateCell,
-    setIsTokenDialogOpen
-  });
-
-  const { handleQuote, handleExecute } = useExoraActions({
-    rows,
-    setRows,
-    skClient,
-    wallets,
-    tokens,
-    chainflipBroker,
-    onOpenWindow
+    setIsTokenDialogOpen,
+    wallets, // Add wallets to props
+    formatTokenBalance, // Add helper function
   });
 
   handleMenuActionRef.current = handleMenuAction;
