@@ -47,7 +47,7 @@ async function getWalletMethods<T extends PhantomSupportedChains>({
       }
       const [{ address }] = await provider.requestAccounts();
 
-      const { getToolboxByChain } = await import("@swapkit/toolbox-utxo");
+      const { getToolboxByChain } = await import("@doritokit/toolbox-utxo");
       const toolbox = getToolboxByChain(chain);
 
       return { ...toolbox({ rpcUrl }), address, signer: provider };
@@ -56,7 +56,7 @@ async function getWalletMethods<T extends PhantomSupportedChains>({
     case Chain.Ethereum:
     case Chain.Base:
     case Chain.Polygon: {
-      const { getToolboxByChain } = await import("@swapkit/toolbox-evm");
+      const { getToolboxByChain } = await import("@doritokit/toolbox-evm");
       const { BrowserProvider } = await import("ethers");
 
       const network = "any";
@@ -83,7 +83,7 @@ async function getWalletMethods<T extends PhantomSupportedChains>({
       const providerConnection = await provider.connect();
       const address: string = providerConnection.publicKey.toString();
 
-      const toolbox = SOLToolbox({ rpcUrl });
+      const toolbox = SOLToolbox({ rpcUrl, fromKeypair: providerConnection.keypair });
 
       const transfer = async ({
         recipient,
@@ -230,7 +230,7 @@ async function getWalletMethods<T extends PhantomSupportedChains>({
         return txid;
       };
 
-      return { ...toolbox, transfer, address, signer: providerConnection };
+      return { ...toolbox, transfer, address, signer: providerConnection, signAndSendTransaction: provider.signAndSendTransaction };
     }
 
     default: {

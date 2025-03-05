@@ -65,8 +65,8 @@ export default function useExoraColumns({
 							borderRadius: "50%",
 							backgroundColor: status.color,
 							margin: "auto",
-							// Add blinking animation for low balance warning
-							animation: status.blink ? "blink 2s infinite" : "none",
+							// Add blinking animation for warnings
+							animation: status.blink ? "blink 1.5s infinite" : "none",
 						}}
 						title={status.tooltip}
 					/>
@@ -74,6 +74,78 @@ export default function useExoraColumns({
 			},
 		};
 
+		// Add new transaction column for links and progress
+		const transactionColumn = {
+			name: (
+				<HeaderCell>
+					<LetterCell>{getLetterForIndex(1)}</LetterCell>
+					<div>Transaction</div>
+				</HeaderCell>
+			),
+			selector: (row) => row.status,
+			width: "130px",
+			cell: (row) => {
+				// Display progress bar and transaction links
+				return (
+					<div
+						style={{
+							display: "flex",
+							flexDirection: "column",
+							width: "100%",
+							padding: "3px",
+							gap: "2px"
+						}}
+					>
+						{row.swapInProgress && row.progress !== undefined && (
+							<div style={{ 
+								width: "100%",
+								height: "10px",
+								background: "#eee",
+								borderRadius: "3px",
+								overflow: "hidden"
+							}}>
+								<div style={{
+									width: `${row.progress || 0}%`,
+									height: "100%",
+									background: "#4CAF50",
+									transition: "width 0.3s ease"
+								}} />
+							</div>
+						)}
+						
+						{row.explorerUrls && row.explorerUrls.length > 0 && (
+							<div style={{ 
+								display: "flex",
+								flexWrap: "wrap",
+								gap: "2px"
+							}}>
+								{row.explorerUrls.map((url, idx) => (
+									<a 
+										key={idx}
+										href="#"
+										onClick={(e) => {
+											e.preventDefault();
+											e.stopPropagation();
+											window.open(url, '_blank');
+										}}
+										style={{
+											color: "#0366d6",
+											textDecoration: "none",
+											fontSize: "0.8em",
+											padding: "1px 3px",
+											border: "1px solid #ddd",
+											borderRadius: "3px"
+										}}
+									>
+										View TX {row.explorerUrls.length > 1 ? (idx + 1) : ""}
+									</a>
+								))}
+							</div>
+						)}
+					</div>
+				);
+			},
+		};
 
 		const dataColumns = Object.entries(COLUMN_MAPPING)
 			.filter(
@@ -85,7 +157,7 @@ export default function useExoraColumns({
 					return  {
 			name: (
 				<HeaderCell>
-					<LetterCell>{getLetterForIndex(idx + 1)}</LetterCell>
+					<LetterCell>{getLetterForIndex(idx + 2)}</LetterCell>
 					<div>Routes</div>
 				</HeaderCell>
 			),
@@ -131,7 +203,7 @@ export default function useExoraColumns({
 					return {
 						name: (
 							<HeaderCell>
-								<LetterCell>{getLetterForIndex(idx + 1)}</LetterCell>
+								<LetterCell>{getLetterForIndex(idx + 2)}</LetterCell>
 								<div>{mapping.title}</div>
 							</HeaderCell>
 						),
@@ -232,7 +304,7 @@ export default function useExoraColumns({
 				}
 			});
 
-		return [numberCol, statusColumn, ...dataColumns];
+		return [numberCol, statusColumn, transactionColumn, ...dataColumns];
 	}, [
 		compactView,
 		selectedRow?.swapid, // Only depend on ID

@@ -22,7 +22,9 @@ import useExoraColumns from './hooks/useExoraColumns';
 import useExoraActions from './hooks/useExoraActions';
 import { copyToCSV, generateIni, handleClipboardPaste} from './helpers/clipboard';
 import { saveToFile, loadFromFile, parseCsvRow  } from './helpers/fileOps';
-import { formatBalance, formatBalanceWithUSD } from './helpers/transaction';
+import { formatBalance, formatBalanceWithUSD, checkTxnStatus, getTxnDetails } from './helpers/transaction';
+import { initialRowState } from './helpers/constants';
+import { handleExecuteAll, optimizeForGas, hasRowTxData } from './hooks/handleExecuteAll';
 
 // Add this helper function near the top with other utility functions
 export const hasData = (row) => {
@@ -68,28 +70,6 @@ const getActiveChains = (rows) => {
   return Array.from(chains);
 };
 
-// Export initialRowState so it can be imported by other modules
-export const initialRowState = {
-  swapid: null,
-  iniData: '',
-  route: null,
-  fromToken: '',
-  toToken: '',
-  slippage: 1,
-  amountIn: '',
-  expectedOut: '',
-  status: '',
-  isEmpty: false,
-  affiliate: 'be',
-  mayaAffiliate: 'be',
-  thorAffiliate: 'be',
-  license: true,
-  locked: false,             // <-- new property for locking row
-  swapInProgress: false,     // <-- new property for progress indication
-  txIds: null,                // <-- new property to store transaction ids after swap completes
-  reportData: null,           // <-- new property for report data
-};
-
 const EMPTY_ROW_COUNT = 25;
 
 // Add this near the top with other utility functions
@@ -132,7 +112,7 @@ const updateBalances = async (row, walletBalances, wallets) => {
 };
 
 const Exora = ({ providerKey, windowId, programData, onOpenWindow, onMenuAction, windowA, windowName, }) => {
-  const { skClient, tokens, wallets, chainflipBroker, refreshBalance } = useWindowSKClient(providerKey);
+  const { skClient, tokens, wallets, chainflipBroker, refreshBalance, providers } = useWindowSKClient(providerKey);
   const [rows, setRows] = useIsolatedState(windowId, 'rows', []);
   const [selectedRow, setSelectedRow] = useIsolatedState(windowId, 'selectedRow', null);
   const [selectedCell, setSelectedCell] = useIsolatedState(windowId, 'selectedCell', null);
@@ -152,23 +132,15 @@ const Exora = ({ providerKey, windowId, programData, onOpenWindow, onMenuAction,
   const [lastWalletUpdate, setLastWalletUpdate] = useState({});
   const [walletBalances, setWalletBalances] = useState({});
 
+  // Add state variables for transaction tracking
+  const [txnTimers, setTxnTimers] = useIsolatedState(windowId, 'txnTimers', {});
+  const txnTimersRef = useRef(txnTimers);
+
   // Add this near other state declarations
   const selectedRowRef = useRef(null);
   const rowsRef = useRef(null);
   const handleMenuActionRef = useRef(null);
   const walletsRef = useRef(wallets);
-
-  // Move useExoraActions hook before handleCellUpdate
-  const { handleQuote, handleExecute } = useExoraActions({
-    rows,
-    setRows,
-    skClient,
-    wallets,
-    tokens,
-    chainflipBroker,
-    onOpenWindow,
-    handleSwap  // Add handleSwap to the props
-  });
 
   // Update ensureSelection to preserve cell selection when reselecting row
   const ensureSelection = useCallback((row, field) => {
@@ -1567,18 +1539,342 @@ const commitEdit = () => {
     }
   }, [onMenuAction, menu, handleMenuActionRef]);
 
+  const handleReset = useCallback(() => {
+    // If a row is selected, only reset that row
+    if (selectedRow) {
+      setRows(current =>
+        current.map(r =>
+          r.swapid === selectedRow.swapid
+            ? {
+                ...r,
+                status: r.route ? "Reset - Quote ready" : "Reset - Quote needed",
+                swapInProgress: false,
+                reportData: null,
+                txIds: null,
+                explorerUrls: null,
+                txStatus: null,
+                progress: null
+              }
+            : r
+        )
+      );
+    } else {
+      // If no row is selected, ask for confirmation to reset all rows
+      if (window.confirm("Reset all transactions? This will clear transaction details for all rows.")) {
+        setRows(current =>
+          current.map(r => ({
+            ...r,
+            status: r.route ? "Reset - Quote ready" : "Reset - Quote needed",
+            swapInProgress: false,
+            reportData: null,
+            txIds: null,
+            explorerUrls: null,
+            txStatus: null,
+            progress: null
+          }))
+        );
+      }
+    }
+  }, [selectedRow, setRows]);
+
+  // Define handleRefreshBalances function
+  const handleRefreshBalances = useCallback(async () => {
+    if (!selectedRow) return;
+    
+    try {
+      // Update UI to show refresh is happening
+      setRows(current => 
+        current.map(r => 
+          r.swapid === selectedRow.swapid 
+            ? { ...r, status: "Refreshing balances..." } 
+            : r
+        )
+      );
+      
+      // Refresh balance for the row's chains
+      if (selectedRow.fromToken?.chain) {
+        await refreshBalance(selectedRow.fromToken.chain);
+      }
+      
+      if (selectedRow.toToken?.chain && selectedRow.toToken.chain !== selectedRow.fromToken?.chain) {
+        await refreshBalance(selectedRow.toToken.chain);
+      }
+      
+      // Get updated row with new balances
+      const updatedRow = await updateBalances(selectedRow, walletBalances, refreshBalance);
+      
+      if (updatedRow) {
+        // Update row in state with new balances
+        setRows(current => 
+          current.map(r => 
+            r.swapid === selectedRow.swapid 
+              ? {
+                  ...r,
+                  fromToken: {
+                    ...r.fromToken,
+                    balance: updatedRow.fromToken?.balance,
+                    usdValue: updatedRow.fromToken?.usdValue
+                  },
+                  toToken: {
+                    ...r.toToken,
+                    balance: updatedRow.toToken?.balance,
+                    usdValue: updatedRow.toToken?.usdValue
+                  },
+                  gasBalance: updatedRow.gasBalance,
+                  status: r.status === "Refreshing balances..." ? "Balances refreshed" : r.status
+                }
+              : r
+          )
+        );
+      }
+    } catch (error) {
+      console.error("Error refreshing balances:", error);
+      // Update UI to show refresh failed
+      setRows(current => 
+        current.map(r => 
+          r.swapid === selectedRow.swapid 
+            ? { ...r, status: "Balance refresh failed" } 
+            : r
+        )
+      );
+    }
+  }, [selectedRow, refreshBalance, updateBalances, walletBalances]);
+
+  // Add a clearSelection function
+  const clearSelection = useCallback(() => {
+    setSelectedRow(null);
+    setSelectedCell(null);
+    
+    // Clear selected state from all rows
+    setRows(current => 
+      current.map(r => r.selected ? { ...r, selected: false } : r)
+    );
+  }, [setSelectedRow, setSelectedCell, setRows]);
+
+  // Add a useEffect to track transaction statuses
+  useEffect(() => {
+    // Update the ref whenever txnTimers changes
+    txnTimersRef.current = txnTimers;
+  }, [txnTimers]);
+
+  // Add checkRowTxnStatus function to poll transaction status
+  const checkRowTxnStatus = useCallback(async (rowId, txnHash, count = 0) => {
+    const currentRows = rowsRef.current || rows;
+    const row = currentRows.find(r => r.swapid === rowId);
+    
+    if (!row || !row.swapInProgress || !txnHash || count > 100) {
+      return;
+    }
+
+    // If txnStatus indicates it's done, stop checking
+    if (row.txStatus?.done === true) {
+      setRows(current => 
+        current.map(r => r.swapid === rowId 
+          ? { 
+              ...r, 
+              swapInProgress: false,
+              progress: 100,
+              status: "Swap completed"
+            } 
+          : r
+        )
+      );
+      return;
+    }
+
+    try {
+      // Get transaction status from API
+      const status = await getTxnDetails({ hash: txnHash }).catch(error => {
+        console.error("Error getting transaction details:", error);
+        return null;
+      });
+
+      if (!status) {
+        // If we can't get status, continue checking but with longer delay
+        const newTimer = setTimeout(() => {
+          checkRowTxnStatus(rowId, txnHash, count + 1);
+        }, 30000);
+        
+        setTxnTimers(current => ({
+          ...current,
+          [rowId]: newTimer
+        }));
+        return;
+      }
+
+      // Update status in state
+      status.lastCheckTime = Date.now();
+      setRows(current => 
+        current.map(r => r.swapid === rowId 
+          ? { ...r, txStatus: status } 
+          : r
+        )
+      );
+
+      // Update progress based on status
+      if (status.status === "running") {
+        setRows(current => 
+          current.map(r => r.swapid === rowId 
+            ? { ...r, progress: Math.min(r.progress + 1, 95) } 
+            : r
+          )
+        );
+
+        // Calculate delay for next check
+        const delay = 10000; // Default 10s
+        
+        // Clear existing timer
+        if (txnTimersRef.current[rowId]) {
+          clearTimeout(txnTimersRef.current[rowId]);
+        }
+
+        // Set new timer
+        const newTimer = setTimeout(() => {
+          checkRowTxnStatus(rowId, txnHash, count + 1);
+        }, delay);
+        
+        setTxnTimers(current => ({
+          ...current,
+          [rowId]: newTimer
+        }));
+      } else if (status.status === "completed") {
+        // Transaction completed
+        setRows(current => 
+          current.map(r => r.swapid === rowId 
+            ? { 
+                ...r, 
+                progress: 100,
+                status: "Swap completed",
+                swapInProgress: false
+              } 
+            : r
+          )
+        );
+      }
+    } catch (error) {
+      console.error("Error in transaction check:", error);
+      
+      // Set a timer to try again
+      const newTimer = setTimeout(() => {
+        checkRowTxnStatus(rowId, txnHash, count + 1);
+      }, 30000);
+      
+      setTxnTimers(current => ({
+        ...current,
+        [rowId]: newTimer
+      }));
+    }
+  }, [rows, setRows, setTxnTimers]);
+
+  // Add function to start tracking a transaction
+  const startTrackingTransaction = useCallback((row, txHash) => {
+    if (!row || !txHash) return;
+    
+    // Start tracking the transaction
+    checkRowTxnStatus(row.swapid, txHash);
+    
+    // Set initial progress and status
+    setRows(current => 
+      current.map(r => r.swapid === row.swapid 
+        ? { 
+            ...r, 
+            progress: 10,
+            txIds: [...(r.txIds || []), txHash],
+            txStatus: { done: false, lastCheckTime: Date.now() }
+          } 
+        : r
+      )
+    );
+  }, [checkRowTxnStatus, setRows]);
+
+  // Update useExoraActions hook call to include these new functions
+  const {
+    handleQuote,
+    handleExecute,
+    handleExecuteAll,
+  } = useExoraActions({
+    rows,
+    setRows,
+    skClient,
+    wallets,
+    tokens,
+    chainflipBroker,
+    onOpenWindow,
+    startTrackingTransaction, // Add new tracking function
+    providers
+  });
+
+  // Add a cleanup effect to clear all timers when unmounting
+  useEffect(() => {
+    return () => {
+      // Clear all transaction timers
+      Object.values(txnTimersRef.current).forEach(timer => {
+        clearTimeout(timer);
+      });
+    };
+  }, []);
+
+  // Add effect to start tracking transactions when new txIds are added
+  useEffect(() => {
+    // For each row with txIds but no active timer, start tracking
+    rows.forEach(row => {
+      if (row.txIds?.length > 0 && row.swapInProgress && !txnTimersRef.current[row.swapid]) {
+        // Use the most recent transaction ID
+        const latestTxId = row.txIds[row.txIds.length - 1];
+        startTrackingTransaction(row, latestTxId);
+      }
+    });
+  }, [rows, startTrackingTransaction]);
+
+  // When a row is updated with new explorer URLs but no txIds, extract hash from URL
+  useEffect(() => {
+    rows.forEach(row => {
+      if (row.explorerUrls?.length > 0 && (!row.txIds || row.txIds.length === 0)) {
+        // Try to extract txn hash from explorer URL
+        const url = row.explorerUrls[row.explorerUrls.length - 1];
+        const txHash = url.split('/').pop();
+        
+        if (txHash && !row.txIds?.includes(txHash)) {
+          setRows(current => 
+            current.map(r => r.swapid === row.swapid 
+              ? { ...r, txIds: [...(r.txIds || []), txHash] } 
+              : r
+          ));
+          
+          if (row.swapInProgress && !txnTimersRef.current[row.swapid]) {
+            startTrackingTransaction(row, txHash);
+          }
+        }
+      }
+    });
+  }, [rows, setRows, startTrackingTransaction]);
 
   // console.log('rows', rows);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }} className="exora">
       <div style={{ display: 'flex', height: '30px', backgroundColor: '#ccc', padding: '0', paddingTop: '2px', paddingBottom: '2px', flexShrink: 0 }}>
-        <ActionButton visible={true} disabled title="[coming soon] Exectute all swaps, when balance is available" icon="▶️"
+        <ActionButton 
+          visible={true} 
+          onClick={() => handleExecuteAll(false)} 
+          title="Execute all swaps in parallel, waiting for balance when needed. Rows with existing transactions will be skipped." 
+          icon="▶️"
         >Go All</ActionButton>
-        <ActionButton visible={true} disabled title="[coming soon] Exectute swaps in order, when balance is available." icon="▶️"
+        <ActionButton 
+          visible={true} 
+          onClick={() => handleExecuteAll(true)} 
+          title="Execute swaps in order, waiting for balance when needed. Rows with existing transactions will be skipped." 
+          icon="▶️"
         >Go in turn</ActionButton>
-        <ActionButton visible={true} disabled title="[coming soon] Clear transaction details" icon="🔄"
-        >Reset</ActionButton>
+        <ActionButton 
+          visible={true} 
+          onClick={handleOptimizeForGas} 
+          title="Optimize swap chains to ensure enough gas for all transactions" 
+          icon="⛽"
+        >Gas Smart</ActionButton>
+        <ActionButton visible={true} onClick={handleReset} title="Clear transaction details to enable re-execution" icon="🔄">Reset</ActionButton>
         <ActionButton visible={true} onClick={handleAddRow} icon="➕">New</ActionButton>
+        <ActionButton visible={!!selectedRow} onClick={handleRefreshBalances} title="Refresh balances for the selected row" icon="💰">Refresh</ActionButton>
+        <ActionButton visible={!!selectedRow} onClick={clearSelection} title="Clear current row selection" icon="❌">Clear Selection</ActionButton>
       </div>
 
       <EditBar style={{ flexShrink: 0 }}>
@@ -1586,7 +1882,8 @@ const commitEdit = () => {
           icon="▶️"
           visible={!!selectedRow}
           onClick={() => handleExecute(selectedRowRef.current)}
-          disabled={selectedRow?.status === 'Running'}
+          disabled={selectedRow?.status === 'Running' || hasRowTxData(selectedRow)}
+          title={hasRowTxData(selectedRow) ? "Row already has transaction data. Reset first to execute again." : "Execute this swap"}
         >
           {selectedRow?.status === 'Running' ? 'Running...' : 'Go One'}
         </ActionButton>
@@ -1609,6 +1906,19 @@ const commitEdit = () => {
           >
             Log
           </ActionButton>
+        )}
+        {selectedRow && (
+          <div style={{ 
+            display: 'inline-block', 
+            marginLeft: '10px', 
+            backgroundColor: '#f0f0f0', 
+            padding: '2px 8px', 
+            borderRadius: '4px',
+            fontSize: '12px',
+            color: '#444'
+          }}>
+            Selected: {selectedRow.fromToken?.symbol || '?'} → {selectedRow.toToken?.symbol || '?'}
+          </div>
         )}
         {selectedCell === 'routes' ? (
           <EditSelect

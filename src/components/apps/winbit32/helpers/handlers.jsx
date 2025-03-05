@@ -1,5 +1,5 @@
 import { saveAs } from "file-saver";
-import { amountInBigNumber, getAssetValue, getQuoteFromSwapKit } from "./quote";
+import { amountInBigNumber, getAssetValue, getQuoteFromSwapKit, getQuoteFromDoritoKit } from "./quote";
 import { AssetValue, RequestClient, SwapKitNumber } from "@swapkit/helpers";
 import { FeeOption, SwapKitApi } from "@swapkit/sdk";
 import { ChainIdToChain } from "@swapkit/sdk";
@@ -291,7 +291,7 @@ export const handleSwap = async (
 	swapFrom = getTokenForProvider(tokens, swapFrom, route.providers[0]);
 
 	console.log("route", route);
-	setTxnHash("");
+	setTxnHash([]);
 	setExplorerUrl("");
 	setTxnStatus(null);
 	setProgress(8);
@@ -300,7 +300,7 @@ export const handleSwap = async (
 	console.log("assetValue", assetValue, swapFrom, amount, otherBits);
 
 	let cfAddress = null;
-	if (route.providers[0] === "CHAINFLIP" || route.providers[0] === "CHAINFLIP_DCA") {
+	if ((route.providers[0] === "CHAINFLIP" || route.providers[0] === "CHAINFLIP_DCA")) {
 		const dotWallet = wallets.find((wallet) => wallet.chain === "DOT");
 
 		const { broker, toolbox } = await chainflipBroker(dotWallet || wallet);
@@ -536,7 +536,53 @@ export const handleSwap = async (
 
 	console.log("swapParams", swapParams);
 
-	const swapResponse = await skClient.swap(swapParams).catch((error) => {
+	let sk = skClient;
+
+	// if(!swapParams.tx){
+
+	// 	if(route.providers[0] === "ONEINCH" || route.providers[0] === "UNISWAP"){
+	// 		// export const EVMTransactionSchema = z.object({
+	// 		// 	to: z.string({
+	// 		// 		description: "Address of the recipient",
+	// 		// 	}),
+	// 		// 	from: z.string({
+	// 		// 		description: "Address of the sender",
+	// 		// 	}),
+	// 		// 	value: z.string({
+	// 		// 		description: "Value to send",
+	// 		// 	}),
+	// 		// 	data: z.string({
+	// 		// 		description: "Data to send",
+	// 		// 	}),
+	// 		// });
+
+
+	// 		const txData = {
+	// 			to: destinationAddress,
+	// 			from: wallet.address,
+	// 			value: assetValue.bigIntValue,
+	// 			data: route.memo
+	// 		};
+
+	// 		const txObject = await wallet.createTransferTx({
+	// 			from: wallet.address,
+	// 			recipient: wallet.address,
+	// 			assetValue,
+	// 		});
+	// 		const estimateFee = await wallet.estimateTransactionFee(txObject, swapParams.feeOption);
+	// 		console.log("estimateFee", estimateFee);
+	// 		swapParams.tx = txObject;
+
+
+
+	// 		console.log("txData", txObject);
+	// 	}
+
+
+	// }
+
+
+	const swapResponse = await sk.swap(swapParams).catch((error) => {
 		setStatusText("Error swapping:: " + error.message);
 		//add tx info to reportData
 		setReportData(prev => {
@@ -581,7 +627,7 @@ export const handleSwap = async (
 		setStatusText("Transaction sent");
 		setSwapInProgress(false);
 		setShowProgress(false);
-		return;
+		return swapResponse;
 	}
 
 	// Function to log properties for debugging
@@ -679,7 +725,7 @@ export const handleSwap = async (
 		setSwapInProgress(false);
 		setShowProgress(false);
 		return;
-	}else if(txDetails?.message.includes("Server Error")){
+	}else if(txDetails?.message?.includes("Server Error")){
 		setStatusText("Process Started, Click 'View TX' to see progress");
 		setSwapInProgress(false);
 		setShowProgress(false);
@@ -692,7 +738,7 @@ export const handleSwap = async (
 	currentTxnStatus.current = txDetails;
 
 	setTxnStatus(txDetails);
-	setTxnHash(swapResponse);
+	setTxnHash([swapResponse, wallet.chainId]);
 
 	setProgress(13);
 	// } catch (error) {

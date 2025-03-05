@@ -8,13 +8,46 @@ export const convertToIdentFormat = (symbol, chain, address) => {
 	}
 };
 
-export const fetchCategories = async () => {
-	const response = await fetch(
-		"https://api.coingecko.com/api/v3/coins/categories"
-	);
-	const data = await response.json();
+// Cache for categories
+const categoriesCache = {
+	data: null,
+	timestamp: 0
+};
+const CATEGORIES_CACHE_DURATION = 3600000; // 1 hour
 
-	return data;
+export const fetchCategories = async () => {
+	// Check cache first
+	if (categoriesCache.data && (Date.now() - categoriesCache.timestamp < CATEGORIES_CACHE_DURATION)) {
+		return categoriesCache.data;
+	}
+
+	try {
+		const response = await fetch(
+			"https://api.coingecko.com/api/v3/coins/categories"
+		);
+		
+		if (!response.ok) {
+			throw new Error(`Failed to fetch categories: ${response.status} ${response.statusText}`);
+		}
+		
+		const data = await response.json();
+		
+		// Update cache
+		categoriesCache.data = data;
+		categoriesCache.timestamp = Date.now();
+		
+		return data;
+	} catch (error) {
+		console.error("Error fetching categories:", error);
+		
+		// Return cached data if available, even if expired
+		if (categoriesCache.data) {
+			return categoriesCache.data;
+		}
+		
+		// Return empty array if no cached data
+		return [];
+	}
 };
 
 export const getTokenFromIdentifier = (tokens, identifier) => {
@@ -134,45 +167,103 @@ const priceCache = new Map();
 const CACHE_DURATION = 60000; // 1 minute
 
 const getCachedPrice = (identifier) => {
-  if (!identifier) return null;
-  const key = identifier.toLowerCase();
-  const cached = priceCache.get(key);
+	if (!identifier) return null;
+	const key = identifier.toLowerCase();
+	const cached = priceCache.get(key);
   
-  if (!cached) return null;
-  if (Date.now() - cached.timestamp > CACHE_DURATION) {
-    priceCache.delete(key);
-    return null;
-  }
+	if (!cached) return null;
+	if (Date.now() - cached.timestamp > CACHE_DURATION) {
+		priceCache.delete(key);
+		return null;
+	}
   
-  return cached;
+	return cached;
 };
 
 export const fetchMultipleTokenPrices = async (tokens) => {
-  // Deduplicate tokens
-  const uniqueTokens = [...new Set(tokens.map(t => t.toLowerCase()))];
-  
-  // Get currently valid cached prices
-  const now = Date.now();
-  const cached = new Map();
-  const toFetch = [];
+	try {
+		// Deduplicate tokens
+		const uniqueTokens = [...new Set(tokens.map(t => t.toLowerCase()))];
+		
+		// Get currently valid cached prices
+		const now = Date.now();
+		const cached = new Map();
+		const toFetch = [];
 
-  uniqueTokens.forEach(token => {
-    const cachedData = getCachedPrice(token);
-    if (cachedData && now - cachedData.timestamp < CACHE_DURATION) {
-      cached.set(token, cachedData);
-    } else {
-      toFetch.push(token);
-    }
-  });
+		uniqueTokens.forEach(token => {
+			const cachedData = getCachedPrice(token);
+			if (cachedData && now - cachedData.timestamp < CACHE_DURATION) {
+				cached.set(token, cachedData);
+			} else {
+				toFetch.push(token);
+			}
+		});
 
-  // Only fetch if we have uncached tokens
-  if (toFetch.length === 0) {
-    return uniqueTokens.map(token => ({
-      identifier: token,
-      price_usd: cached.get(token)?.price || 0,
-      time: now
-    }));
-  }
+		// Only fetch if we have uncached tokens
+		if (toFetch.length === 0) {
+			return uniqueTokens.map(token => ({
+				identifier: token,
+				price_usd: cached.get(token)?.price || 0,
+				time: now
+			}));
+		}
+		
+		// Prepare token identifiers for API call
+		const tokenIdentifiers = toFetch.map((token) => { return {identifier: token.toLowerCase()};});
 
-  // ... rest of fetchMultipleTokenPrices function ...
+		// Fetch fresh prices from API
+		const response = await fetch("https://api.swapkit.dev/price", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				tokens: tokenIdentifiers,
+				metadata: true,
+			}),
+		});
+
+		const data = await response.json();
+
+		// Process and cache the results
+		const fetchedResults = data.map((item) => {
+			const result = {
+				identifier: item.identifier,
+				price_usd: item.price_usd,
+				time: now
+			};
+			
+			// Update cache with new values
+			priceCache.set(item.identifier.toLowerCase(), {
+				price: item.price_usd,
+				timestamp: now
+			});
+			
+			return result;
+		});
+
+		// Combine fetched results with cached results
+		const tokenUSDPrices = uniqueTokens.map(token => {
+			const fetchedItem = fetchedResults.find(item => 
+				item.identifier.toLowerCase() === token.toLowerCase()
+			);
+			
+			if (fetchedItem) {
+				return fetchedItem;
+			}
+			
+			return {
+				identifier: token,
+				price_usd: cached.get(token)?.price || 0,
+				time: now
+			};
+		});
+
+		console.log("Token prices:", tokenUSDPrices);
+		return tokenUSDPrices;
+	
+	} catch (error) {
+		console.error("Error fetching token prices:", error);
+		return [];
+	}
 };

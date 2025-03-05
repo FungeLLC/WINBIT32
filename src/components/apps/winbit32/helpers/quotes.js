@@ -1,7 +1,6 @@
 import { AssetValue } from "@swapkit/sdk";
-import { getQuoteFromChainflip, getQuoteFromSwapKit, getQuoteFromThorchainDirect } from "./quote";
+import { getQuoteFromChainflip, getQuoteFromSwapKit, getQuoteFromThorchainDirect, getQuoteFromDoritoKit } from "./quote";
 import { amountInBigNumber } from "./quote";
-import { SwapKitApi } from "@swapkit/api";
 import bigInt from "big-integer";
 import { getQuoteFromMaya } from "./maya";
 import { forEach } from "lodash";
@@ -30,7 +29,8 @@ export const getQuotes = async (
 	setThorAffiliate,
 	setMayaAffiliate,
 	numChunks,
-	chunkIntervalBlocks
+	chunkIntervalBlocks,
+	providers
 ) => {
 	const thisDestinationAddress =
 		destinationAddress || chooseWalletForToken(swapTo, wallets)?.address;
@@ -49,13 +49,16 @@ export const getQuotes = async (
 				? 16
 				: 32;
 		
-		let providerGroups = [["MAYACHAIN", "MAYACHAIN_STREAMING", "THORCHAIN", "THORCHAIN_STREAMING"]];
+		let providerGroups = [["DORITO"]];//["MAYACHAIN", "MAYACHAIN_STREAMING", "THORCHAIN", "THORCHAIN_STREAMING"]];
+		//choose providers that are not THORCHAIN or MAYACHAIN or Chainflip
+		const doritoProviders = providers.map(p => p.name);
+		console.log("doritoProviders", doritoProviders);
 		const affiliates = [mayaAffiliate, thorAffiliate];	
-		if(thorAffiliate !== mayaAffiliate || true){
+		if(thorAffiliate !== mayaAffiliate){
 			providerGroups = [
 				["MAYACHAIN", "MAYACHAIN_STREAMING"],
-
 				["THORCHAIN", "THORCHAIN_STREAMING"],
+				["DORITO"],
 			];
 		}
 
@@ -118,6 +121,7 @@ export const getQuotes = async (
 		// 	affiliateBasisPoints: basisPoints.toString(),
 		// 	affiliateAddress: "be",
 		// };
+		const doneProviders = [];
 
 		const quoteFuncs = quotesParams.map((quoteParams) => {
 			console.log("quoteParams", quoteParams);
@@ -152,7 +156,8 @@ export const getQuotes = async (
 						const assetPrice = route.thorchainQuote.fees?.asset_price || 1;
 						return totalValue * assetPrice;
 					  };
-
+					  doneProviders.push("THORCHAIN");
+					  doneProviders.push("THORCHAIN_STREAMING");
 					// Combine both quotes into one response
 					return {
 						quoteId: normalQuote.quoteId,
@@ -171,12 +176,15 @@ export const getQuotes = async (
 						]
 					};
 				};
+			}else if(quoteParams.providers.some(p => p === "MAYACHAIN" || p === "MAYACHAIN_STREAMING")){
+				return () => getQuoteFromMaya(quoteParams, swapTo, swapFrom);
+
+			}else if(quoteParams.providers.some(p => p === "DORITO")){
+				// Remove done providers from SwapKit providers
+				quoteParams.providers = doritoProviders.filter(p => !doneProviders.includes(p));
+				return () => getQuoteFromDoritoKit(quoteParams);
+				
 			}
-			// Remove THORCHAIN from SwapKit providers
-			quoteParams.providers = quoteParams.providers.filter(p => 
-				!p.includes("THORCHAIN")
-			);
-			return () => getQuoteFromSwapKit(quoteParams);
 		});
 
 		//add chainflip to the list of quotes

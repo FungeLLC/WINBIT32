@@ -86,7 +86,16 @@ export function getExplorerAddressUrl(
 
 export function getTxnDetails(txHash) {
 	console.log("getTxnDetails", txHash);
-	return RequestClient.post(`${baseUrlV1}/tracker/v2/txn`, {
+
+
+	const url = `https://crunchy.dorito.club/api/track`;
+
+	const body = {
+		hash: txHash[0],
+		chainId: txHash[1],
+	}
+
+	return RequestClient.post(url, {
 		body: JSON.stringify(txHash),
 		headers: {
 			"Content-Type": "application/json",
@@ -128,16 +137,16 @@ export const checkTxnStatus = async (
 	if (
 		swapInProgress &&
 		txnHash &&
-		txnHash !== "" &&
+		txnHash.length > 0 &&
 		txnHash === _txnHash &&
 		txnStatus?.done !== true &&
 		txnStatus?.lastCheckTime &&
 		new Date() - txnStatus?.lastCheckTime > 1000 &&
 		cnt < 100
 	) {
-		console.log("Getting txn details", txnHash.toString());
+		console.log("Getting txn details", txnHash);
 		
-		const status = await getTxnDetails({ hash: txnHash.toString() }).catch(
+		const status = await getTxnDetails(txnHash).catch(
 			(error) => {
 				//setStatusText("Error getting transaction details");
 				setSwapInProgress(false);
@@ -151,7 +160,7 @@ export const checkTxnStatus = async (
 				setTimeout(() => {
 					checkTxnStatus(
 						txnHash,
-						txnHash + "",
+						txnHash[0],
 						cnt + 1,
 						swapInProgress,
 						txnStatus,
@@ -185,7 +194,7 @@ export const checkTxnStatus = async (
 				setTimeout(() => {
 					checkTxnStatus(
 						txnHash,
-						txnHash + "",
+						txnHash[0],
 						cnt + 1,
 						swapInProgress,
 						txnStatus,
@@ -224,29 +233,43 @@ export const checkTxnStatus = async (
 
 export const getTxnUrl = (txHash, chain, skClient) => {
 	try {
+		if(typeof txHash === "string"){
+			txHash = [txHash, chain];
+		}
+
+		
 		if(txHash === null){
 			return "";
 		}
+
+		if(txHash.length === 0){
+			return "";
+		}
+		
+		if(!chain){
+			chain = ChainToChainId[txHash[1]];
+		}
+		
 		switch (chain) {
 			case Chain.THORChain:
 			case Chain.Maya:
 			case Chain.Bitcoin:
 			case Chain.Ethereum:
-				return `https://www.xscanner.org/tx/${txHash}`;
+				return `https://www.xscanner.org/tx/${txHash[0]}`;
 
 			case Chain.Solana:
-				return 'https://solscan.io/tx/' + txHash;
+				return 'https://solscan.io/tx/' + txHash[0];
 			default:
-				return skClient.getExplorerTxUrl({ chain, txHash });
+				return skClient.getExplorerTxUrl({ chain, txHash: txHash[0] });
 		}
 	} catch (error) {
 		console.log("error", error, txHash, chain, skClient);
 		if (chain === "XRD" || chain === 'radix-mainnet') {
-			if (txHash?.id)
-				return `https://dashboard.radixdlt.com/transaction/${txHash?.id}`;
-			else return `https://dashboard.radixdlt.com/transaction/${txHash}`;
+			if (txHash?.[0]?.id)
+				return `https://dashboard.radixdlt.com/transaction/${txHash?.[0]?.id}`;
+			else return `https://dashboard.radixdlt.com/transaction/${txHash?.[0]}`;
 		} else {
-			return "https://www.mayascan.org/tx/" + txHash;
+			return "https://www.xscanner.org/tx/" + txHash?.[0];
 		}
 	}
 }

@@ -3,7 +3,6 @@ import { chooseWalletForToken } from "../helpers/handlers";
 import { getQuotes } from "../helpers/quotes";
 import { handleSwap } from "../helpers/handlers";
 import { initialRowState } from "../helpers/constants";
-import { handleExecuteAll, optimizeForGas } from "./handleExecuteAll";
 
 export default function useExoraActions({
 	rows,
@@ -13,7 +12,6 @@ export default function useExoraActions({
 	tokens,
 	chainflipBroker,
 	onOpenWindow,
-	providers
 }) {
 	const handleQuote = useCallback(
 		async (row) => {
@@ -250,8 +248,7 @@ export default function useExoraActions({
 									: r
 							)
 						),
-					...Object.values(streamingParams),
-					providers
+					...Object.values(streamingParams) // Spread streaming parameters
 				);
 			} catch (error) {
 				console.error("Error getting quotes:", error);
@@ -481,26 +478,245 @@ export default function useExoraActions({
 		[rows, setRows, skClient, wallets, tokens, chainflipBroker, onOpenWindow]
 	);
 
-	// Wrap the imported handleExecuteAll function
-	const executeAll = useCallback(
+	// Add the handleExecuteAll function for batch processing
+	const handleExecuteAll = useCallback(
 		async (inOrder = false) => {
-			await handleExecuteAll(rows, setRows, skClient, handleExecute, onOpenWindow, inOrder);
+			// Get all non-empty rows that have quotes
+			const validRows = rows.filter(
+				(r) => 
+					!r.isEmpty && 
+					r.fromToken && 
+					r.toToken && 
+					r.amountIn && 
+					r.route && 
+					!r.swapInProgress
+			);
+
+			if (validRows.length === 0) {
+				console.log("No valid rows to execute");
+				return;
+			}
+
+			// Set all rows to waiting status
+			setRows((current) =>
+				current.map((r) =>
+					validRows.some((vr) => vr.swapid === r.swapid)
+						? { ...r, status: "Waiting for execution..." }
+						: r
+				)
+			);
+
+			// Create a batch report
+			const batchReport = {
+				startTime: new Date().toISOString(),
+				totalSwaps: validRows.length,
+				completedSwaps: 0,
+				failedSwaps: 0,
+				swapReports: []
+			};
+
+			// Function to check if a row has sufficient balance
+			const hasSufficientBalance = (row) => {
+				if (!row.fromToken?.balance) return false;
+				
+				// Get balance as number
+				const balance = typeof row.fromToken.balance === 'object' && row.fromToken.balance.bigIntValue
+					? Number(row.fromToken.balance.bigIntValue) / Number(row.fromToken.balance.decimalMultiplier)
+					: Number(row.fromToken.balance);
+				
+				// Get gas balance
+				const gasBalance = row.gasBalance 
+					? (typeof row.gasBalance === 'object' && row.gasBalance.bigIntValue
+						? Number(row.gasBalance.bigIntValue) / Number(row.gasBalance.decimalMultiplier)
+						: Number(row.gasBalance))
+					: 0;
+				
+				// Check if we have enough balance for the swap
+				return balance >= Number(row.amountIn) && gasBalance > 0;
+			};
+
+			// Function to refresh balances for a row
+			const refreshRowBalances = async (row) => {
+				try {
+					// Get fresh wallet data
+					await skClient.core.refreshBalance(row.fromToken.chain);
+					
+					// Get updated wallets
+					const updatedWallets = skClient.core.getWallets();
+					
+					// Find the wallet for this token
+					const wallet = updatedWallets.find(w => w.chain === row.fromToken.chain);
+					if (!wallet) return row;
+					
+					// Find the token balance
+					const tokenBalance = wallet.balance?.find(
+						b => b.isSynthetic !== true && 
+							(b.chain + '.' + b.ticker.toUpperCase() === row.fromToken.identifier.toUpperCase() || 
+							b.chain + '.' + b.symbol.toUpperCase() === row.fromToken.identifier.toUpperCase())
+					) || wallet.balance?.find(
+						b => b.isSynthetic === true && 
+							b.symbol.toUpperCase() === row.fromToken.identifier.toUpperCase()
+					);
+					
+					// Find gas balance
+					const gasAsset = row.fromToken.chain ? skClient.core.getGasAsset({ chain: row.fromToken.chain }) : null;
+					const gasBalance = gasAsset ? wallet.balance?.find(
+						b => b.chain === gasAsset.chain && 
+							(b.symbol === gasAsset.symbol || b.ticker === gasAsset.symbol)
+					) : null;
+					
+					// Update row with new balances
+					const updatedRow = {
+						...row,
+						fromToken: {
+							...row.fromToken,
+							balance: tokenBalance
+						},
+						gasBalance: gasBalance
+					};
+					
+					// Update the row in state
+					setRows(current => 
+						current.map(r => 
+							r.swapid === row.swapid ? updatedRow : r
+						)
+					);
+					
+					return updatedRow;
+				} catch (error) {
+					console.error("Error refreshing balances:", error);
+					return row;
+				}
+			};
+
+			// Process rows one by one or in parallel based on inOrder parameter
+			if (inOrder) {
+				// Process rows in sequence
+				for (const row of validRows) {
+					let currentRow = row;
+					
+					// Wait for sufficient balance
+					while (!hasSufficientBalance(currentRow)) {
+						// Update status to waiting for balance
+						setRows(current => 
+							current.map(r => 
+								r.swapid === currentRow.swapid 
+									? { 
+											...r, 
+											status: "Waiting for sufficient balance..." 
+										} 
+									: r
+							)
+						);
+						
+						// Wait 15 seconds before checking again
+						await new Promise(resolve => setTimeout(resolve, 15000));
+						
+						// Refresh balances
+						currentRow = await refreshRowBalances(currentRow);
+					}
+					
+					// Execute the swap
+					try {
+						await handleExecute(currentRow);
+						
+						// Update batch report
+						batchReport.completedSwaps++;
+						batchReport.swapReports.push({
+							swapId: currentRow.swapid,
+							fromToken: currentRow.fromToken.identifier,
+							toToken: currentRow.toToken.identifier,
+							amount: currentRow.amountIn,
+							status: "completed"
+						});
+					} catch (error) {
+						console.error(`Error executing swap for row ${currentRow.swapid}:`, error);
+						
+						// Update batch report
+						batchReport.failedSwaps++;
+						batchReport.swapReports.push({
+							swapId: currentRow.swapid,
+							fromToken: currentRow.fromToken.identifier,
+							toToken: currentRow.toToken.identifier,
+							amount: currentRow.amountIn,
+							status: "failed",
+							error: error.message || "Unknown error"
+						});
+					}
+				}
+			} else {
+				// Process all rows in parallel with balance checking
+				const processRow = async (row) => {
+					let currentRow = row;
+					
+					// Wait for sufficient balance
+					while (!hasSufficientBalance(currentRow)) {
+						// Update status to waiting for balance
+						setRows(current => 
+							current.map(r => 
+								r.swapid === currentRow.swapid 
+									? { 
+											...r, 
+											status: "Waiting for sufficient balance..." 
+										} 
+									: r
+							)
+						);
+						
+						// Wait 15 seconds before checking again
+						await new Promise(resolve => setTimeout(resolve, 15000));
+						
+						// Refresh balances
+						currentRow = await refreshRowBalances(currentRow);
+					}
+					
+					// Execute the swap
+					try {
+						await handleExecute(currentRow);
+						
+						// Update batch report
+						batchReport.completedSwaps++;
+						batchReport.swapReports.push({
+							swapId: currentRow.swapid,
+							fromToken: currentRow.fromToken.identifier,
+							toToken: currentRow.toToken.identifier,
+							amount: currentRow.amountIn,
+							status: "completed"
+						});
+					} catch (error) {
+						console.error(`Error executing swap for row ${currentRow.swapid}:`, error);
+						
+						// Update batch report
+						batchReport.failedSwaps++;
+						batchReport.swapReports.push({
+							swapId: currentRow.swapid,
+							fromToken: currentRow.fromToken.identifier,
+							toToken: currentRow.toToken.identifier,
+							amount: currentRow.amountIn,
+							status: "failed",
+							error: error.message || "Unknown error"
+						});
+					}
+				};
+				
+				// Start processing all rows
+				await Promise.all(validRows.map(processRow));
+			}
+			
+			// Complete the batch report
+			batchReport.endTime = new Date().toISOString();
+			batchReport.duration = (new Date(batchReport.endTime) - new Date(batchReport.startTime)) / 1000;
+			
+			// Show batch report
+			if (onOpenWindow) {
+				onOpenWindow("notepad.exe", {
+					content: JSON.stringify(batchReport, null, 2),
+					filename: `batch_swap_report_${new Date().toISOString()}.json`
+				});
+			}
 		},
 		[rows, setRows, skClient, handleExecute, onOpenWindow]
 	);
-	
-	// Wrap the optimizeForGas function
-	const handleOptimizeForGas = useCallback(
-		async () => {
-			await optimizeForGas(rows, setRows, skClient, tokens, initialRowState, handleQuote);
-		},
-		[rows, setRows, skClient, tokens, handleQuote]
-	);
 
-	return { 
-		handleQuote, 
-		handleExecute, 
-		handleExecuteAll: executeAll,
-		handleOptimizeForGas
-	};
+	return { handleQuote, handleExecute, handleExecuteAll };
 }

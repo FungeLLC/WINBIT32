@@ -1,5 +1,13 @@
 import { nth } from 'lodash';
-import styled from 'styled-components';
+import styled, { keyframes } from 'styled-components';
+
+// Define the blinking animation
+const blink = keyframes`
+  0% { opacity: 1; }
+  50% { opacity: 0.3; }
+  100% { opacity: 1; }
+`;
+
 export const ActionButton = styled.button`
   padding: 5px;
   border: 2px outset #989e9e;
@@ -81,10 +89,16 @@ export const customStyles = {
   rows: {
     style: {
       minHeight: '35px',
-      backgroundColor: ({ isEmpty }) => isEmpty ? '#f8f8f8' : 'white',
+      backgroundColor: ({ isEmpty, gasWarning }) => {
+        if (gasWarning) return '#ffebee'; // Light red background for gas warnings
+        return isEmpty ? '#f8f8f8' : 'white';
+      },
       '&:hover': {
         cursor: 'pointer',
-        backgroundColor: ({ isEmpty }) => isEmpty ? '#e8e8e8' : '#f0f0f0'
+        backgroundColor: ({ isEmpty, gasWarning }) => {
+          if (gasWarning) return '#ffcdd2'; // Slightly darker red on hover
+          return isEmpty ? '#e8e8e8' : '#f0f0f0';
+        }
       }
     },
     selectedHighlightStyle: {

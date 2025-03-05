@@ -1,6 +1,6 @@
 import { copyToCSV } from './clipboard';
 import * as XLSX from 'xlsx';
-import { initialRowState } from '../Exora'; // Import initialRowState
+import { initialRowState } from './constants'; // Import initialRowState
 import { hasData } from '../Exora'; // Add this import
 
 // Helper for sanitizing data before save

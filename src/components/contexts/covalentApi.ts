@@ -40,9 +40,13 @@ interface AlchemyApiConfig {
 // Modified to accept tokens directly instead of a ref
 export const alchemyApi = ({ tokens, apiKey }: { tokens: TokenInfo[]; apiKey: string }) => 
   (chainId: ChainId) => ({
+    isAlchemyApi: true,
     getBalance: async (address: string): Promise<LegacyBalance[]> => {
+
+      console.log("alchemyApi", address, chainId, tokens.length);
+
       const network = chainIdToAlchemyNetwork[chainId];
-      if (!network) throw new Error(`Unsupported chain ID: ${chainId}`);
+      if (!network) throw new Error(`Unsupported alchemyApi chain ID: ${chainId}`);
 
       const response = await RequestClient.post<AlchemyResponse>(
         `https://${network}.g.alchemy.com/v2/${apiKey}`,
@@ -60,15 +64,26 @@ export const alchemyApi = ({ tokens, apiKey }: { tokens: TokenInfo[]; apiKey: st
         }
       );
 
+      console.log("alchemyApi response", response);
+
+      const chain = ChainIdToChain[chainId];
+      
       return response.result.tokenBalances
-        .filter(token => BigInt(token.tokenBalance) > 0n)
         .map(token => {
+          // Find token by address AND matching chain
           const tokenInfo = tokens.find(t => 
-            t.address.toLowerCase() === token.contractAddress.toLowerCase()
+            t.address?.toLowerCase() === token.contractAddress?.toLowerCase() && 
+            t.chain === chain
           );
           
-          if (!tokenInfo) return null;
+          if (!tokenInfo) {
+            console.log(`Token not found in list: ${token.contractAddress} on chain ${chain}`, tokens.length);
+            return null;
+          }
 
+          console.log("token found", tokenInfo);
+
+          // Format to match the covalentApi return structure
           return {
             value: formatBigIntToSafeValue({
               value: BigInt(token.tokenBalance),
@@ -76,10 +91,8 @@ export const alchemyApi = ({ tokens, apiKey }: { tokens: TokenInfo[]; apiKey: st
               bigIntDecimal: tokenInfo.decimals,
             }),
             decimal: tokenInfo.decimals,
-            chain: ChainIdToChain[chainId],
-            ticker: tokenInfo.symbol,
-            address: token.contractAddress,
-            isNative: false
+            chain: chain,
+            symbol: `${tokenInfo.ticker || "Unknown"}${false ? "" : `-${token.contractAddress}`}`,
           };
         })
         .filter(Boolean) as LegacyBalance[];

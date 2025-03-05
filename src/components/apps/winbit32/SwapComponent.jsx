@@ -7,7 +7,7 @@ import './styles/SwapComponent.css';
 import ProgressBar from '../../win/ProgressBar';
 import { saveAs } from 'file-saver';
 import MenuBar from '../../win/MenuBar';
-import { Chain, FeeOption } from '@swapkit/sdk';
+import { Chain, ChainId, FeeOption } from '@swapkit/sdk';
 import { getQuotes } from './helpers/quotes';
 import { chooseWalletForToken, handleSwap, handleTokenSelect, updateDestinationAddress, delayedParseIniData, parseIniData } from './helpers/handlers';
 import { checkTxnStatus, formatBalance } from './helpers/transaction';
@@ -45,7 +45,7 @@ const SwapComponent = ({
 	sendUpHash,
 	windowA
 }) => {
-	const { skClient, tokens, wallets, chainflipBroker } = useWindowSKClient(providerKey);
+	const { skClient, tokens, wallets, chainflipBroker, providers } = useWindowSKClient(providerKey);
 	const { isRandomPhrase } = programData;
 	const { license, embedMode } = appData || {}
 	const [swapFrom, setSwapFrom] = useIsolatedState(windowId, 'swapFrom', metadata.swapFrom || null);
@@ -67,7 +67,7 @@ const SwapComponent = ({
 	const [progress, setProgress] = useIsolatedState(windowId, 'progress', 0);
 	const [showProgress, setShowProgress] = useIsolatedState(windowId, 'showProgress', false);
 	const [explorerUrls, setExplorerUrls] = useIsolatedState(windowId, 'explorerUrls', '');
-	const [txnHash, setTxnHash] = useIsolatedState(windowId, 'txnHash', '');
+	const [txnHash, setTxnHash] = useIsolatedState(windowId, 'txnHash', []);
 	const [txnStatus, setTxnStatus] = useIsolatedState(windowId, 'txnStatus', '');
 	const currentTxnStatus = useRef(txnStatus);
 	const [statusText, setStatusText] = useIsolatedState(windowId, 'statusText', '');
@@ -148,7 +148,8 @@ const SwapComponent = ({
 			iniData,
 			thorAffiliate, mayaAffiliate,
 			setThorAffiliate, setMayaAffiliate,
-			streamingNumSwaps, streamingInterval
+			streamingNumSwaps, streamingInterval,
+			providers
 		);
 
 
@@ -244,7 +245,7 @@ swap_count=${streamingNumSwaps}
 	}, [swapFrom, swapTo, amount, destinationAddress, slippage, mayaAffiliate, thorAffiliate]);
 
 	useEffect(() => {
-		if (txnHash !== '') checkTxnStatus(txnHash, txnHash + '', 0, swapInProgress, txnStatus, setStatusText, setSwapInProgress, setShowProgress, setProgress, setTxnStatus, setTxnTimer, txnTimerRef);
+		if (txnHash && txnHash.length > 0) checkTxnStatus(txnHash, txnHash[0], 0, swapInProgress, txnStatus, setStatusText, setSwapInProgress, setShowProgress, setProgress, setTxnStatus, setTxnTimer, txnTimerRef);
 	}, [txnHash]);
 
 
@@ -538,7 +539,8 @@ swap_count=${streamingNumSwaps}
 					setThorAffiliate,
 					setMayaAffiliate,
 					streamingNumSwaps,
-					streamingInterval
+					streamingInterval,
+					providers
 				);
 
 				setProgress(13 + (i * 7));
@@ -794,7 +796,7 @@ swap_count=${streamingNumSwaps}
 						}
 						<button className='swap-toolbar-button' onClick={() => {
 							setSwapInProgress(false);
-							setTxnHash('');
+							setTxnHash([]);
 							setTxnStatus('');
 							setStatusText("");
 							doGetQuotes(true);

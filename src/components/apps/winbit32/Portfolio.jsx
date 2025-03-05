@@ -39,7 +39,7 @@ const Portfolio = ({ providerKey, handleOpenArray, onOpenWindow, windowId }) => 
 	const getTokenfromBalanceToken = useCallback((balanceToken) => {
 
 		const tokenIdentifier = identifierFromBalance(balanceToken);
-		const token = tokens.find(token => token.identifier.toLowerCase() === tokenIdentifier.toLowerCase());
+		const token = tokens.find(token => token?.identifier?.toLowerCase() === tokenIdentifier.toLowerCase());
 		if (!token) {
 			console.log("Token not found for identifier: ", tokenIdentifier);
 			return;
@@ -110,6 +110,11 @@ const Portfolio = ({ providerKey, handleOpenArray, onOpenWindow, windowId }) => 
 		});
 	}, [getTokenfromBalanceToken, setUsdPrices, usdPrices]);
 
+	useEffect(() => {
+		console.log('Tokens changed: ', tokens);
+
+	}, [tokens]);
+
 
 	useEffect(() => {
 		if (!wallets || wallets.length === 0) {
@@ -163,13 +168,16 @@ const Portfolio = ({ providerKey, handleOpenArray, onOpenWindow, windowId }) => 
 
 
 	useEffect(() => {
-		const datasource = wallets.map(wallet => ({
+		if(!wallets){
+			return;
+		}
+		const datasource = wallets?.map(wallet => ({
 			chain: wallet.chain, // [0] is used to get the chain of the first token in the wallet. All tokens in the wallet are assumed to be of the same chain
 			symbol: wallet.balance?.find(b => b.isGasAsset)?.symbol || wallet.balance[0]?.symbol,
 			address: wallet.address,
 			derivationPath: wallet.derivationPath,
 			ticker: wallet.balance?.find(b => b.isGasAsset)?.ticker || wallet.balance[0]?.ticker,
-			balance: wallet.balance.find(b => b.isGasAsset)?.bigIntValue ? Number(wallet.balance.find(b => b.isGasAsset).bigIntValue) / Number(wallet.balance.find(b => b.isGasAsset).decimalMultiplier) : Number(wallet.balance[0].bigIntValue) / Number(wallet.balance[0].decimalMultiplier),
+			balance: wallet.balance?.find(b => b.isGasAsset)?.bigIntValue ? Number(wallet.balance?.find(b => b.isGasAsset).bigIntValue) / Number(wallet.balance?.find(b => b.isGasAsset).decimalMultiplier) : Number(wallet.balance?.[0].bigIntValue) / Number(wallet.balance?.[0].decimalMultiplier),
 			link: getExplorerAddressUrl(wallet.chain, wallet.address).replace('https://dashboard.radixdlt.com/address/', 'https://dashboard.radixdlt.com/account/'),
 			totalUSD: walletTotals.find(total => total.chain === wallet.chain)? '$'+(formatNumber(walletTotals.find(total => total.chain === wallet.chain)?.totalUSD,2) || '--') : '-',
 			totalUSDSort: walletTotals.find(total => total.chain === wallet.chain) ? walletTotals.find(total => total.chain === wallet.chain)?.totalUSD : Number(wallet.balance[0].bigIntValue) / 10 ** 36,

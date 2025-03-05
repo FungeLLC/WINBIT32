@@ -6,6 +6,8 @@ import { AssetValue as SKAssetValue } from "@swapkit/sdk";
 import bigInt from "big-integer";
 import { SwapSDK, Chains, Assets } from "@chainflip/sdk/swap";
 import { skChainToChainflipChain, skAssetToChainflipAsset } from "../../../wallets/wallet-phantom/tools";
+import { SwapKitApi as dKitApi } from '@doritokit/sdk'
+
 
 
 
@@ -130,6 +132,50 @@ export async function getQuoteFromSwapKit(quoteParams) {
 
 	return await response.json();
 }
+
+
+export async function getQuoteFromDoritoKit(quoteParams) {
+	const fetch = require("fetch-retry")(global.fetch);
+
+
+
+	const apiUrl = "https://crunchy.dorito.club/api/";
+	//convert number strings to numbers
+	//quoteParams.sellAmount = Number(quoteParams.sellAmount);
+	quoteParams.slippage = Number(quoteParams.slippage);
+	quoteParams.includeTx = true;
+
+	//filter out ONEINCH from quoteParams.providers
+	// quoteParams.providers = quoteParams.providers.filter(provider => provider !== "ONEINCH");
+
+	console.log('quoteParams for DoritoKit', quoteParams);
+
+
+	return dKitApi.getSwapQuote(quoteParams);
+
+
+	// const response = await fetch(`${apiUrl}quote`, {
+	// 	method: "POST",
+	// 	headers: {
+	// 		"Content-Type": "application/json",
+	// 	},
+	// 	body: JSON.stringify(quoteParams),
+	// 	retries: 5,
+	// 	retryDelay: function (attempt, error, response) {
+	// 		const delay = Math.pow(2, attempt) * 1000; // 1000, 2000, 4000
+	// 		console.log(`Retrying in ${delay}ms`, error, response);
+	// 		return delay;
+	// 	},
+	// 	retryOn: [504],
+	// });
+
+	// if (!response.ok) {
+	// 	throw new Error("Failed to fetch quote");
+	// }
+
+	// return await response.json();
+}
+
 
 
 export async function getQuoteFromChainflip(quoteParams) {

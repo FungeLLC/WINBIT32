@@ -30,8 +30,13 @@ export const getTokenBalance = (token, wallets) => {
   }
 
   const balance = wallet?.balance?.find(
-    b => b.isSynthetic !== true && (b.chain + '.' + b.ticker.toUpperCase() === token.identifier.toUpperCase() || b.chain + '.' + b.symbol.toUpperCase() === token.identifier.toUpperCase()))
-    || wallet?.balance?.find(b => b.isSynthetic === true && b.symbol.toUpperCase() === token.identifier.toUpperCase());  if(!balance){
+    b => b.isSynthetic !== true && (
+      (b.chain + '.' + (b.ticker?.toUpperCase() ?? '') === token.identifier?.toUpperCase() ?? '') || 
+      (b.chain + '.' + (b.symbol?.toUpperCase() ?? '') === token.identifier?.toUpperCase() ?? '')
+    )) || wallet?.balance?.find(
+      b => b.isSynthetic === true && (b.symbol?.toUpperCase() ?? '') === (token.identifier?.toUpperCase() ?? '')
+    );
+  if(!balance){
     console.log('Token balance not found', wallet.balance, token);
     return 0;
   }
@@ -64,6 +69,31 @@ export const COLUMN_MAPPING = {
     editor: 'readonly',
     compact: true,
     format: (value, row) => {
+      // Check for rows with transaction data
+      if (row.reportData || (row.txIds && row.txIds.length > 0) || (row.explorerUrls && row.explorerUrls.length > 0)) {
+        return {
+          color: 'purple',
+          tooltip: 'Transaction data present - Reset to execute again'
+        };
+      }
+      
+      // Check for explicit gas warning flag
+      if (row.gasWarning) {
+        return { 
+          color: 'red', 
+          blink: true,
+          tooltip: 'Insufficient gas for transaction'
+        };
+      }
+      
+      // Check for gas-optimized rows
+      if (row.gasOptimized) {
+        return {
+          color: 'blue',
+          tooltip: row.status || 'Row optimized for gas - needs quote'
+        };
+      }
+      
       // Check for required fields
       if (!row.fromToken || !row.toToken || !row.amountIn) {
         return { color: 'red', tooltip: 'Missing required fields' };
@@ -337,7 +367,7 @@ export const parseIniData = (
     switch (key.trim()) {
       case 'token_from':
         const fromToken = tokens.find(token => 
-          token.identifier.toLowerCase() === value.trim().toLowerCase()
+          token.identifier?.toLowerCase() === value.trim().toLowerCase()
         );
         if (fromToken) {
           fromToken.identifier = fromToken.identifier.replace('0X', '0x');

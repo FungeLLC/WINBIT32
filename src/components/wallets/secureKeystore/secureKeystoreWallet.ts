@@ -232,14 +232,14 @@ const getWalletMethodsForChain = async ({
 
 			// console.log("EVM ChainId", chain, chainId);
 
-			const cApi = covalentApi({apiKey: covalentApiKey, chainId})
+			// const cApi = covalentApi({apiKey: covalentApiKey, chainId})
 
-			// console.log("EVM Chain", chain, rpcUrl, provider, keys, cApi, phrase);
+			console.log("EVM Chain", chain, rpcUrl, provider, keys, phrase);
 
 			const wallet = isPK(phrase)
 				? new ethersWallet(phrase).connect(provider)
 				: HDNodeWallet.fromPhrase(phrase).connect(provider);
-			const params = { ...keys, api: cApi, provider, signer: wallet };
+			const params = { ...keys, provider, signer: wallet, api };
 
 			address = wallet.address;
 
@@ -456,8 +456,8 @@ const getWalletMethodsForChain = async ({
 		}
 
 		case Chain.Solana: {
-			toolbox = SOLToolbox({ rpcUrl });
 			const keypair = toolbox.createKeysForPath({ phrase, derivationPath });
+			toolbox = SOLToolbox({ rpcUrl, fromKeypair: keypair });
 
 			address = toolbox.getAddressFromKeys(keypair);
 
@@ -488,12 +488,16 @@ function connectSecureKeystore({
 	rpcUrls,
 	config: { thorswapApiKey, covalentApiKey, ethplorerApiKey, blockchairApiKey, stagenet },
 }: ConnectWalletParams) {
+	
+
 	return async function connectSecureKeystore(
 		chains: WalletChain[],
 		password: string, // Optional password to skip the user prompt
 		derivationPathMapOrIndex?: { [chain in Chain]?: DerivationPathArray } | number,
 		otherOptions: object = {}
 	) {
+		console.log("connectSecureKeystore", apis, rpcUrls, thorswapApiKey, covalentApiKey, ethplorerApiKey, blockchairApiKey, stagenet);
+
 		if (!encryptedKeystore) {
 			//throw new Error("Keystore is not set. Please set the encrypted keystore before connecting.");
 			//password is phrase
@@ -505,6 +509,8 @@ function connectSecureKeystore({
 
 		setRequestClientConfig({ apiKey: thorswapApiKey });
 
+
+		console.log("Chains", chains);
 		const promises = chains.map(async (chain) => {
 			const dIndex = typeof derivationPathMapOrIndex !== "object" ? derivationPathMapOrIndex : 0;
 			const index = typeof derivationPathMapOrIndex === "number" ? derivationPathMapOrIndex === -1 ? 0 : derivationPathMapOrIndex : 0;

@@ -249,113 +249,50 @@ const Winbit32 = ({ onMenuAction, windowA, windowId, windowName, setStateAndSave
 
 	}, [currentPhraseRef]);
 
-	const addSingleWallet = useCallback(async (wallet, chain, phrase) => {
-		if (connectedRef.current !== phrase || currentPhraseRef.current !== phrase) {
-			console.log('Phrase changed, not updating wallets', phrase, currentRef.current);
+	// Custom function to add a single wallet
+	const addSingleWallet = useCallback(async (wallet, chain, phraseUsed) => {
+		if (currentPhraseRef.current !== phraseUsed) {
+			console.log('Phrase changed, not updating wallets', phraseUsed, currentPhraseRef.current);
 			return false;
 		}
-
-		wallet.qrimage = renderToStaticMarkup(<QRCodeSVG renderAs='svg' value={wallet.address} />).toString();
-		wallet.chain = chain.toString();
-		wallet.chainObj = chain;
-		wallet.chainId = ChainToChainId[chain];
-		if (wallet.balance) {
-			const xrdBalance = wallet.balance.find(b => b.ticker === 'resource_rdx1tknxxxxxxxxxradxrdxxxxxxxxx009923554798xxxxxxxxxradxrd');
-			if (xrdBalance) {
-				xrdBalance.ticker = 'XRD';
-				xrdBalance.isGasAsset = true;
+		
+		try {
+			if (wallet && wallet.chain && wallet.address) {
+				await addWallet(wallet);
+				return true;
 			}
+			return false;
+		} catch (error) {
+			console.error('Error adding wallet:', error);
+			return false;
 		}
-		if (wallet.chain === 'MAYA') {
-			//check for license NFT
-			console.log('Checking for license NFTs');
-			fetchMNFTsForAccount(wallet.address).then((accountMNFTs) => {
-				if (accountMNFTs && accountMNFTs.length > 0) {
-					wallet.mnfts = accountMNFTs;
-					//search symbol WB32
-					console.log('Account MNFTs', accountMNFTs);
-					const wb32 = accountMNFTs.find(mnft => mnft.symbol === 'WB32');
-					if (wb32) {
-						console.log('WB32', wb32);
-						if (wb32.ids?.length > 0) {
-							//Site is licenced - update global.
-							console.log('Site is licenced', wb32.ids[0]);
-							setLicense(wb32.ids[0]);
-						}
-					}
-				}
-			});
-
-		}
-		// export const createKeyring = async (phrase: string, networkPrefix: number) => {
-		if (wallet.createKeyring) {
-			const { words } = phraseToParts(phrase);
-			wallet.keyRing = await wallet.createKeyring(words, wallet.network.prefix);
-			wallet.cfKeyRing = await createKeyring(words, 2112);
-		}else if(wallet.createKeysForPath){
-
-		}
-		//console.log('Connect Result', wallet);
-
-		addWallet(wallet);
-		console.log('addSingleWallet', wallet.chain, wallet, wallets);
-		return true;
-	}, [addWallet, phrase, wallets]);
-
-	const getWallets = useCallback(async (phrase, p) => {
-		let walletPromises = [];
-		setWallets([]);
-		resetWallets();
-		currentWalletsRef.current = [];
-		//remove chainflip from connectChains
-		const walletChains = connectChains;//.filter(chain => chain !== Chain.ChainFlip);
-
-		for (let i = 0; i < walletChains.length; i++) {
-			const walletPromise = skClient.getWalletWithBalance(walletChains[i]).then(async (result) => {
-				//console.log('Connected successfully', result);
-				result.qrimage = renderToStaticMarkup(<QRCodeSVG renderAs='svg' value={result.address} />).toString();
-				result.chain = walletChains[i].toString();
-				result.chainObj = walletChains[i];
-				result.chainId = ChainToChainId[walletChains[i]];
-				if (result.balance){
-					const xrdBalance = result.balance.find(b => b.ticker === 'resource_rdx1tknxxxxxxxxxradxrdxxxxxxxxx009923554798xxxxxxxxxradxrd');
-					if (xrdBalance) {
-						xrdBalance.ticker = 'XRD';
-						xrdBalance.isGasAsset = true;
-					}
-				}
-				//export const createKeyring = async (phrase: string, networkPrefix: number) => {
-				// if(result.createKeyring){
-				// 	result.keyRing = await result.createKeyring(phrase, result.network.prefix);
-				// 	result.cfKeyRing = await createKeyring(phrase, 2112);
-				// }
-				console.log('Connect Result', result);
-
-				if (await addSingleWallet(result, p) === false) {
-					// console.log('Phrase changed, not updating wallets!!', p, currentRef.current);
-					return false;
-				}
-			}).catch((error) => {
-				console.error('Connection failed', error);
-				setStatusMessage('Not all wallets could be connected, please try later.');
-			});
-			walletPromises.push(walletPromise);
-		}
-		await Promise.all(walletPromises);
-	}, [addSingleWallet, connectChains, phrase, resetWallets, setWallets, skClient]);
+	}, [addWallet]);
 
 	const handleConnect = useCallback(async (refresh = false) => {
-		if (refresh === true || currentPhraseRef.current !== connectedRef.current) {
-			if (refresh !== true) {
-				setConnectionStatus('connecting');
-				setStatusMessage('Connecting...');
-				setShowProgress(true);
-				skClient.disconnectAll();
-				setWallets([]);
-				resetWallets();
-			}
 
-			
+
+		if (refresh === true || currentPhraseRef.current !== connectedRef.current) {
+			// UI state updates
+			setConnectionStatus('connecting');
+			setStatusMessage('Loading wallet environment...');
+			setShowProgress(true);
+			setProgress(10);
+
+			// Reset state
+			if (skClient && typeof skClient.disconnectAll === 'function') {
+				skClient.disconnectAll();
+			}
+			setWallets([]);
+			resetWallets();
+
+			// Set a timeout to prevent hanging on connection attempts
+			const connectionTimeout = setTimeout(() => {
+				console.log('Connection attempt timed out');
+				setConnectionStatus('disconnected');
+				setStatusMessage('Connection timed out. Please try again.');
+				setShowProgress(false);
+			}, 30000); // 30 second timeout
+
 			setProgress(13);
 			//if currentPhraseRef doesn't have a number on the end then add a zero
 			let p = currentPhraseRef.current.trim();
@@ -373,72 +310,136 @@ const Winbit32 = ({ onMenuAction, windowA, windowId, windowName, setStateAndSave
 				return acc;
 			}, {phrase: '', index: 0});
 
-			//remove the zero from the end of the phrase
-
-			// console.log('Connecting with phrase:', phrase.trim(), '#', index);
-			console.log('connecting with skClient:', skClient);
+			console.log('Connecting with phrase and index:', index);
+			console.log('Connecting with skClient:', skClient);
 
 			try {
-				const promises = await connect(phrase.trim(), index,
-					async (wallet, chain) => { //from getWalletWithBalance
-						try{
-							if (currentPhraseRef.current !== p) {
-								// console.log('Phrase changed, not updating wallets', phrase, currentRef.current);
-								return false;
+				// Ensure tokens are loaded
+				setProgress(20);
+				setStatusMessage('Loading token data...');
+
+				// Connect wallet
+				setProgress(30);
+				setStatusMessage('Connecting to wallet...');
+
+				// Use the imported connect function
+				const clientInstance = await connect(phrase.trim(), index);
+				
+				setProgress(50);
+				setStatusMessage('Processing wallets...');
+				
+				if (!clientInstance) {
+					throw new Error('Failed to get client instance');
+				}
+
+				// Process wallets
+				if (wallets && Array.isArray(wallets) && wallets.length > 0) {
+					console.log(`Processing ${wallets.length} wallets`);
+					
+					// Process each wallet
+					for (const wallet of wallets) {
+						if (wallet && wallet.chain && wallet.address) {
+							try {
+								// Add QR code
+								wallet.qrimage = renderToStaticMarkup(<QRCodeSVG renderAs='svg' value={wallet.address} />).toString();
+								
+								// Add chain info
+								wallet.chainObj = wallet.chain;
+								wallet.chainId = ChainToChainId[wallet.chain];
+								
+								// Process XRD balance if present
+								if (wallet.balance) {
+									const xrdBalance = wallet.balance.find(b => b.ticker === 'resource_rdx1tknxxxxxxxxxradxrdxxxxxxxxx009923554798xxxxxxxxxradxrd');
+									if (xrdBalance) {
+										xrdBalance.ticker = 'XRD';
+										xrdBalance.isGasAsset = true;
+									}
+								}
+								
+								// Check for MAYA NFTs
+								if (wallet.chain === 'MAYA') {
+									console.log('Checking for license NFTs');
+									fetchMNFTsForAccount(wallet.address).then((accountMNFTs) => {
+										if (accountMNFTs && accountMNFTs.length > 0) {
+											wallet.mnfts = accountMNFTs;
+											console.log('Account MNFTs', accountMNFTs);
+											const wb32 = accountMNFTs.find(mnft => mnft.symbol === 'WB32');
+											if (wb32 && wb32.ids?.length > 0) {
+												console.log('Site is licenced', wb32.ids[0]);
+												setLicense(wb32.ids[0]);
+											}
+										}
+									});
+								}
+								
+								// Create keyring if supported
+								if (wallet.createKeyring) {
+									const { words } = phraseToParts(phrase);
+									wallet.keyRing = await wallet.createKeyring(words, wallet.network.prefix);
+									wallet.cfKeyRing = await createKeyring(words, 2112);
+								}
+							} catch (walletError) {
+								console.warn(`Error processing wallet for chain ${wallet.chain}:`, walletError);
 							}
-							console.log('Connected successfully', wallet);
-							setConnectedPhrase(phrase);
-							connectedRef.current = p;
-						
-							await addSingleWallet(wallet, chain, p);
-							if (currentPhraseRef.current !== p || connectedRef.current !== p) {
-								// console.log('Phrase changed, not updating wallets', phrase, currentRef.current);
-								return false;
-							}
-							return true;
-							
-						} catch(error) {
-							console.error('Error getting Balance', error);
-							//setConnectionStatus('disconnected');
-							//setStatusMessage(`TC Connection failed: ${error.message}`);
 						}
 					}
-				);
-				if (promises === false || promises?.length === 0) {
-					throw new Error('Failed to connect');
 				}
-						
-				await Promise.all(promises);
 
-				if (currentPhraseRef.current !== p || connectedRef.current !== p) {
-					// console.log('Phrase changed, not updating wallets', phrase, currentRef.current);
-					return false;
-				}
-			
+				// Success progress
+				setProgress(90);
+				setStatusMessage('Connected successfully!');
+
+				// Update UI state for success
 				setProgress(100);
-				console.log('Connected successfully', wallets);
+				console.log('Connected successfully');
 				setPhraseSaved(false);
 				setConnectionStatus('connected');
-				
-				setStatusMessage('Connected successfully' + ((randomPhraseRef.current === currentPhraseRef.current)? ' using a random phrase. Save it before you use it, or lose your funds.': '.'));
+				setConnectedPhrase(phrase);
+				connectedRef.current = p;
+
+				setStatusMessage('Connected successfully' + 
+					((randomPhraseRef.current === currentPhraseRef.current) ? 
+						' using a random phrase. Save it before you use it, or lose your funds.' : '.'));
+
 				setTimeout(() => {
-					console.log('Connected successfully, hiding progress', wallets);
+					console.log('Connected successfully, hiding progress');
 					setShowProgress(false);
 					setProgress(0);
 				}, 2000);
-				
 
+				// Clear the connection timeout
+				clearTimeout(connectionTimeout);
 			} catch (error) {
+				// Handle connection failure
+				console.error('Connection failed:', error);
 				setConnectedPhrase('');
-				console.error('Connection failed', error);
 				setConnectionStatus('disconnected');
-				setStatusMessage(`Connection failed: ${error.message}`);
+
+				// Provide more descriptive error messages based on error type
+				if (error.message.includes('Global API') || error.message.includes('tokens')) {
+					setStatusMessage('Failed to load network data. Please try again.');
+				} else if (error.message.includes('client creation') || error.message.includes('client instance')) {
+					setStatusMessage('Failed to initialize wallet. Please try again.');
+				} else if (error.message.includes('connect any chains')) {
+					setStatusMessage('Failed to connect to blockchain. Please check your phrase.');
+				} else if (error.message.includes('valid wallets') || error.message.includes('No wallets created')) {
+					setStatusMessage('Failed to create wallets. Please check your phrase.');
+				} else if (error.message.includes('SwapKit client creation function not available')) {
+					setStatusMessage('Wallet service not available. Please try again later.');
+				} else {
+					setStatusMessage(`Connection failed: ${error.message}`);
+				}
+
+				// Hide progress on failure
+				setShowProgress(false);
+				
+				// Clear the connection timeout
+				clearTimeout(connectionTimeout);
 			}
-		// } else {
-			// console.log('Already connected', currentPhraseRef.current, connectedRef.current, phrase, connectedPhrase, currentRef.current);
-		
+		} else {
+			console.log('Already connected with the same phrase');
 		}
-	}, [phrase, connectedPhrase, setShowProgress, setProgress, currentPhraseRef, skClient, setConnectionStatus, setStatusMessage, connectChains, setConnectedPhrase, getWallets, wallets, setPhraseSaved]);
+	}, [phrase, connectedPhrase, setShowProgress, setProgress, currentPhraseRef, skClient, setConnectionStatus, setStatusMessage, connectChains, setConnectedPhrase, wallets, setPhraseSaved, connect, resetWallets, setWallets, setLicense]);
 
 	const checkHandleConnect = useCallback(async (chkPhrase) => {
 		const valid = await checkValidPhrase(chkPhrase);
@@ -621,7 +622,9 @@ const Winbit32 = ({ onMenuAction, windowA, windowId, windowName, setStateAndSave
 				setConnectionStatus('connecting');
 				setStatusMessage('Connecting...');
 				setShowProgress(true);
-				skClient.disconnectAll();
+				if (skClient) {
+					skClient.disconnectAll();
+				}
 				setWallets([]);
 				resetWallets();
 				setPhrase('');

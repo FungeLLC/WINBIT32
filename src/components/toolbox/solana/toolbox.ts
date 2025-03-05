@@ -40,6 +40,7 @@ import { HDKey } from "micro-key-producer/slip10.js";
 import bs58 from "bs58";
 import { mnemonicToEntropy } from "bip39";
 import { e, index } from "mathjs";
+import { SOLToolbox as SOLToolboxDori } from "@doritokit/toolbox-solana";
 
 export function validateAddress(address: string) {
 	try {
@@ -646,24 +647,36 @@ function signAllTransactions(transactions: Transaction[], fromKeypair: Keypair) 
 	return transactions.map((transaction) => signTransaction(transaction, fromKeypair));
 }
 
-function signAndSendTransaction(connection: Connection, transaction: Transaction, fromKeypair: Keypair) {
 
-	transaction.feePayer = fromKeypair.publicKey;
-	transaction.sign(fromKeypair);
+function signAndSendTransaction(connection: Connection, fromKeypair: Keypair) {
+	return (transaction: VersionedTransaction, opts?: SendOptions & { fromKeypair: Keypair }) => {
+		if (!opts?.fromKeypair && !fromKeypair) {
+			throw new SwapKitError("core_wallet_not_keypair_wallet");
+		}
+		transaction.sign([opts?.fromKeypair || fromKeypair]);
+		return connection.sendTransaction(transaction);
+	};
+}
 
-	return sendAndConfirmTransaction(connection, transaction, [fromKeypair]);
+function broadcastTransaction(connection: Connection) {
+	return (transaction: Transaction) => {
+		return connection.sendRawTransaction(transaction.serialize());
+	};
 }
 
 
 
 
-export const SOLToolbox = ({ rpcUrl = RPCUrl.Solana }: { rpcUrl?: string } = {}) => {
-	const connection = new Connection(rpcUrl, "confirmed");
+export const SOLToolbox = ({ rpcUrl = RPCUrl.Solana, fromKeypair }: { rpcUrl?: string, fromKeypair?: Keypair } = {}) => {
+
+
+	const doriToolbox = SOLToolboxDori({ rpcUrl });
+	const connection = doriToolbox.connection;
 	const tokenInfos: TokenInfos = {};
 
 	return {
-		connection,
-
+		...doriToolbox,
+		signAndSendTransaction: signAndSendTransaction(connection, fromKeypair),
 		createKeysForPath,
 		getAddressFromKeys,
 		getBalance: getBalance(connection, tokenInfos),
@@ -671,6 +684,5 @@ export const SOLToolbox = ({ rpcUrl = RPCUrl.Solana }: { rpcUrl?: string } = {})
 		validateAddress,
 		signTransaction,
 		signAllTransactions,
-		signAndSendTransaction,
 	};
 };
