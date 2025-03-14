@@ -26,6 +26,7 @@ const Window = ({ title, onMinimize, onMaximize, onClose, onContextMenu,  maximi
 				appData={appData}
 				embedMode={embedMode}
 				embedable={rest.embedable}
+				windowA={rest.windowA}
 				{...rest} />
 			}
 			{children} {/* Any additional content */}

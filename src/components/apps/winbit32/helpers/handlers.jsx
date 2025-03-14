@@ -1,11 +1,9 @@
-import { saveAs } from "file-saver";
-import { amountInBigNumber, getAssetValue, getQuoteFromSwapKit } from "./quote";
-import { AssetValue, RequestClient, SwapKitNumber } from "@swapkit/helpers";
-import { FeeOption, SwapKitApi } from "@swapkit/sdk";
-import { ChainIdToChain } from "@swapkit/sdk";
+import {  getAssetValue} from "./quote";
+
+import { ChainToChainId, FeeOption } from "@doritokit/helpers";
+import { ChainIdToChain } from "@doritokit/helpers";
 import { getTxnDetails, getTxnDetailsV2, getTxnUrl } from "./transaction";
 import { getTokenForProvider } from './token';
-import { re } from "mathjs";
 
 export const chooseWalletForToken = (token, wallets) => {
 	if (!token) return null;
@@ -291,7 +289,7 @@ export const handleSwap = async (
 	swapFrom = getTokenForProvider(tokens, swapFrom, route.providers[0]);
 
 	console.log("route", route);
-	setTxnHash("");
+	setTxnHash([]);
 	setExplorerUrl("");
 	setTxnStatus(null);
 	setProgress(8);
@@ -300,7 +298,7 @@ export const handleSwap = async (
 	console.log("assetValue", assetValue, swapFrom, amount, otherBits);
 
 	let cfAddress = null;
-	if (route.providers[0] === "CHAINFLIP" || route.providers[0] === "CHAINFLIP_DCA") {
+	if ((route.providers[0] === "CHAINFLIP" || route.providers[0] === "CHAINFLIP_DCA")) {
 		const dotWallet = wallets.find((wallet) => wallet.chain === "DOT");
 
 		const { broker, toolbox } = await chainflipBroker(dotWallet || wallet);
@@ -536,7 +534,53 @@ export const handleSwap = async (
 
 	console.log("swapParams", swapParams);
 
-	const swapResponse = await skClient.swap(swapParams).catch((error) => {
+	let sk = skClient;
+
+	// if(!swapParams.tx){
+
+	// 	if(route.providers[0] === "ONEINCH" || route.providers[0] === "UNISWAP"){
+	// 		// export const EVMTransactionSchema = z.object({
+	// 		// 	to: z.string({
+	// 		// 		description: "Address of the recipient",
+	// 		// 	}),
+	// 		// 	from: z.string({
+	// 		// 		description: "Address of the sender",
+	// 		// 	}),
+	// 		// 	value: z.string({
+	// 		// 		description: "Value to send",
+	// 		// 	}),
+	// 		// 	data: z.string({
+	// 		// 		description: "Data to send",
+	// 		// 	}),
+	// 		// });
+
+
+	// 		const txData = {
+	// 			to: destinationAddress,
+	// 			from: wallet.address,
+	// 			value: assetValue.bigIntValue,
+	// 			data: route.memo
+	// 		};
+
+	// 		const txObject = await wallet.createTransferTx({
+	// 			from: wallet.address,
+	// 			recipient: wallet.address,
+	// 			assetValue,
+	// 		});
+	// 		const estimateFee = await wallet.estimateTransactionFee(txObject, swapParams.feeOption);
+	// 		console.log("estimateFee", estimateFee);
+	// 		swapParams.tx = txObject;
+
+
+
+	// 		console.log("txData", txObject);
+	// 	}
+
+
+	// }
+
+
+	const swapResponse = await sk.swap(swapParams).catch((error) => {
 		setStatusText("Error swapping:: " + error.message);
 		//add tx info to reportData
 		setReportData(prev => {
@@ -550,6 +594,9 @@ export const handleSwap = async (
 		return null;
 	});
 
+
+	console.log('swapResponse', swapResponse);
+	
 	if (!swapResponse) return;
 
 
@@ -581,7 +628,7 @@ export const handleSwap = async (
 		setStatusText("Transaction sent");
 		setSwapInProgress(false);
 		setShowProgress(false);
-		return;
+		return swapResponse;
 	}
 
 	// Function to log properties for debugging
@@ -634,7 +681,7 @@ export const handleSwap = async (
 	logObjectProperties(routeWithTransaction, "routeWithTransaction");
 
 	// Construct the txDetailsToSend object
-	const txDetailsToSend = {
+	const _txDetails = {
 		txn: {
 			hash: swapResponse,
 			quoteId: route.quoteId,
@@ -646,31 +693,27 @@ export const handleSwap = async (
 		},
 		route: routeWithTransaction,
 	};
-	logObjectProperties(txDetailsToSend, "txDetailsToSend");
+	logObjectProperties(_txDetails, "_txDetails");
 	setStatusText("Transaction Sent");
+
+	const txDetailsToSend = {
+
+			hash: (typeof swapResponse === "object") ? swapResponse.signature : swapResponse,
+			chainId: ChainToChainId[wallet.chain],
+			quoteId: route.quoteId,
+			route: routeWithTransaction,
+		
+	};
+
 
 	// Send the transaction details
 	const txDetails = await getTxnDetails(txDetailsToSend).catch((error) => {
-
-		const txDetailsV2 = getTxnDetailsV2(swapResponse, route.sourceAddress)
-			.then((txDetailsV2) => {
-				console.log("txDetailsV2", txDetailsV2);
-				if (txDetailsV2) {
-					txDetailsV2.done = false;
-					txDetailsV2.lastCheckTime = 1;
-
-					currentTxnStatus.current = txDetailsV2;
-					return txDetailsV2;
-				}
-			})
-			.catch((error) => {
-				console.log("error", error);
-				setStatusText("Cannot follow this tx. Check Navigator");
-				setSwapInProgress(false);
-				setShowProgress(false);
-				return { done: true, status: "pending", lastCheckTime: 1 };
-			});
-		return txDetailsV2;
+		console.log("error", error);
+		setStatusText("Cannot follow this tx. Check Navigator");
+		setSwapInProgress(false);
+		setShowProgress(false);
+		return { done: true, status: "pending", lastCheckTime: 1 };
+		
 	});
 	console.log("txDetails", txDetails);
 
@@ -679,7 +722,7 @@ export const handleSwap = async (
 		setSwapInProgress(false);
 		setShowProgress(false);
 		return;
-	}else if(txDetails?.message.includes("Server Error")){
+	}else if(txDetails?.message?.includes("Server Error")){
 		setStatusText("Process Started, Click 'View TX' to see progress");
 		setSwapInProgress(false);
 		setShowProgress(false);
@@ -692,7 +735,7 @@ export const handleSwap = async (
 	currentTxnStatus.current = txDetails;
 
 	setTxnStatus(txDetails);
-	setTxnHash(swapResponse);
+	setTxnHash([txDetailsToSend.hash, wallet.chainId]);
 
 	setProgress(13);
 	// } catch (error) {
@@ -729,139 +772,11 @@ export const updateDestinationAddress = (
 	}
 };
 
-export const delayedParseIniData = (
-	_iniData,
-	setIniData,
-	setSwapFrom,
-	setSwapTo,
-	setAmount,
-	setDestinationAddress,
-	setFeeOption,
-	setSlippage,
-	setSelectedRoute,
-	setRoutes,
-	routes,
-	tokens,
-	setManualStreamingSet, setStreamingInterval, setStreamingNumSwaps
-) => {
-	setIniData(_iniData);
-	setTimeout(() => {
-		parseIniData(
-			_iniData,
-			setSwapFrom,
-			setSwapTo,
-			setAmount,
-			setDestinationAddress,
-			setFeeOption,
-			setSlippage,
-			setSelectedRoute,
-			setRoutes,
-			routes,
-			tokens,
-			setManualStreamingSet,
-			setStreamingInterval,
-			setStreamingNumSwaps
-		);
-	}, 1000);
-};
-
-export const parseIniData = (
-	data,
-	setSwapFrom,
-	setSwapTo,
-	setAmount,
-	setDestinationAddress,
-	setFeeOption,
-	setSlippage,
-	setSelectedRoute,
-	setRoutes,
-	routes,
-	tokens,
-	setManualStreamingSet,
-	setStreamingInterval,
-	setStreamingNumSwaps
-) => {
-	const lines = data.split("\n");
-	lines.forEach((line) => {
-		if (line.startsWith(";")) return;
-
-		const [key, value] = line.split("=");
-		switch (key.trim()) {
-			case "token_from":
-				const fromToken = tokens.find(
-					(token) =>
-						token.identifier.toLowerCase() === value.trim().toLowerCase()
-				);
-				if (fromToken) {
-					fromToken.identifier = fromToken.identifier.replace("0X", "0x");
-					setSwapFrom(fromToken);
-				}else{
-					console.log("Token not found", value.trim().toLowerCase());
-				}
-				break;
-			case "token_to":
-				const toToken = tokens.find(
-					(token) =>
-						token.identifier.toLowerCase() === value.trim().toLowerCase()
-				);
-				if (toToken) {
-					toToken.identifier = toToken.identifier.replace("0X", "0x");
-					setSwapTo(toToken);
-				}else{
-					console.log("Token not found", value.trim().toLowerCase());
-				}
-				break;
-			case "amount":
-				setAmount(value.trim());
-				break;
-			case "destination":
-				setDestinationAddress(value.trim());
-				break;
-			case "fee_option":
-				setFeeOption(value.trim());
-				break;
-			case "slippage":
-				setSlippage(parseFloat(value.trim()));
-				break;
-			case "route":
-				if(!value.trim() || value.trim() === "optimal"){
-					console.log("Setting optimal route", value.trim());
-					setSelectedRoute("optimal");	
-				}else{
-					let sr = '';
-					if (routes && routes.length > 0) {
-						const route = routes.find(
-							(route) => route.providers.join(", ") === value.trim()
-						);
-						if (route) {
-							sr = route.providers.join(", ");
-						}
-					}
-					if (!sr) 
-						{
-							//add the route to the list
-							sr = value.trim();
-							routes.push({providers: value.trim().split(","), optimal: false, disabled: true, });
-							console.log("Adding route", sr, value.trim(), routes);
-							setRoutes([...routes]);
-						}
-
-					console.log("Setting route", sr, value.trim(), routes);
-					setSelectedRoute(
-						sr
-					);
-				}
-				break;
-			case "swap_count":
-				setManualStreamingSet(true);
-				setStreamingNumSwaps(parseInt(value.trim()));
-				break;
-			case "swap_interval":
-				setManualStreamingSet(true);
-				setStreamingInterval(parseInt(value.trim()));
-				break;
-			default:
-				break;
-		}
-	});
-};
+// Export ini functions from swapini
+export {
+  parseIniData,
+  delayedParseIniData,
+  parseIni,
+  generateIni,
+  updateIniField
+} from './swapini';

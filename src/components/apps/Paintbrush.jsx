@@ -59,6 +59,19 @@ const Paintbrush = ({ onMenuAction, windowA, windowId, handleOpenArray }) => {
 		}
 	}, [onMenuAction, windowA, menu]);
 
+	useEffect(() => {
+		if (canvasUrl) {
+			const canvas = canvasRef.current;
+			const context = contextRef.current;
+			const image = new Image();
+			image.onload = () => {
+				context.drawImage(image, 0, 0, canvas.width, canvas.height);
+			};
+			image.src = canvasUrl;
+		}
+	}, [windowA]);
+
+
 	const handleMenuClick = (action) => {
 		const canvas = canvasRef.current;
 		switch (action) {

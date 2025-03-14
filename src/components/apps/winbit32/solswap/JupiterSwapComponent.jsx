@@ -169,7 +169,7 @@ const JupiterSwapComponent = ({ providerKey, windowId }) => {
 			// Deserialize and sign the transaction
 			const swapTransactionBuf = Buffer.from(swapTransaction, 'base64');
 			const transaction = VersionedTransaction.deserialize(swapTransactionBuf);
-			const res = await wallet.signAndSendTransacton(transaction);
+			const res = await wallet.signAndSendTransaction(transaction);
 			console.log('Transaction result:', res);
 			setProgress(80);
 

@@ -22,7 +22,6 @@ const MenuBar = ({ menu, window, onMenuClick }) => {
 			setOpenMenu(null); // Close any open submenu
 		}
 	};
-
 	// useEffect(() => {
 	// 	console.log('Menu:', menu);
 	// }
@@ -42,7 +41,7 @@ const MenuBar = ({ menu, window, onMenuClick }) => {
 									key={subIndex}
 									className="submenuitem"
 									onClick={() => handleMenuClick(subItem, window)} // Handle submenu click
-								>
+									> <span className="submenuitemicon">{subItem.icon}{subItem.checked ? '✓ ' : ''}</span> 
 									{subItem.label}
 								</div>
 							))}

@@ -1,5 +1,6 @@
 import {
 	Chain,
+	ChainId,
 	type ConnectWalletParams,
 	DerivationPath,
 	type DerivationPathArray,
@@ -8,6 +9,7 @@ import {
 	derivationPathToString,
 	ensureEVMApiKeys,
 	setRequestClientConfig,
+	ChainToChainId
 } from "@swapkit/helpers";
 import { decryptFromKeystore, Keystore } from "@swapkit/wallet-keystore";
 import { mnemonicToSeedSync } from 'bip39';
@@ -28,6 +30,7 @@ import { Network, createKeyring } from "@swapkit/toolbox-substrate";
 
 import { getRadixCoreApiClient, createPrivateKey, RadixMainnet } from "./legacyRadix.ts";
 import { SOLToolbox } from "../../toolbox/solana/toolbox.ts";
+import { createKeysForPath as createSolanaKeysForPath } from "../../toolbox/solana/toolbox.ts";
 import { addDialogOptions } from "./dialogOptions"
 import { Wallet as ethersWallet, Wallet } from "ethers";
 import { getNetwork } from "@swapkit/toolbox-utxo";
@@ -226,10 +229,18 @@ const getWalletMethodsForChain = async ({
 		case Chain.Polygon: {
 			const keys = ensureEVMApiKeys({ chain, covalentApiKey, ethplorerApiKey });
 			const provider = getProvider(chain, rpcUrl);
+			const chainId = ChainToChainId[chain];
+
+			// console.log("EVM ChainId", chain, chainId);
+
+			// const cApi = covalentApi({apiKey: covalentApiKey, chainId})
+
+			// console.log("EVM Chain", chain, rpcUrl, provider, keys, phrase);
+
 			const wallet = isPK(phrase)
 				? new ethersWallet(phrase).connect(provider)
 				: HDNodeWallet.fromPhrase(phrase).connect(provider);
-			const params = { ...keys, api, provider, signer: wallet };
+			const params = { ...keys, provider, signer: wallet, api };
 
 			address = wallet.address;
 
@@ -446,8 +457,8 @@ const getWalletMethodsForChain = async ({
 		}
 
 		case Chain.Solana: {
-			toolbox = SOLToolbox({ rpcUrl });
-			const keypair = toolbox.createKeysForPath({ phrase, derivationPath });
+			const keypair = createSolanaKeysForPath({ phrase, derivationPath });
+			toolbox = SOLToolbox({ rpcUrl, fromKeypair: keypair });
 
 			address = toolbox.getAddressFromKeys(keypair);
 
@@ -459,6 +470,11 @@ const getWalletMethodsForChain = async ({
 				const phrase = await getPhrase(keystore, password);
 				const keypair = toolbox.createKeysForPath({ phrase, derivationPath });
 				args[0] = { ...args[0], from: address, signer: keypair, fromKeypair: keypair };
+				if(args[1]){
+					args[1] = { ...args[1], fromKeypair: keypair };
+				}else{
+					args[1] = { fromKeypair: keypair };
+				}
 				debugLog("Calling on WrappedToolbox:", originalMethod, toolbox, args);
 
 				return toolbox[originalMethod](...args);
@@ -478,12 +494,16 @@ function connectSecureKeystore({
 	rpcUrls,
 	config: { thorswapApiKey, covalentApiKey, ethplorerApiKey, blockchairApiKey, stagenet },
 }: ConnectWalletParams) {
+	
+
 	return async function connectSecureKeystore(
 		chains: WalletChain[],
 		password: string, // Optional password to skip the user prompt
 		derivationPathMapOrIndex?: { [chain in Chain]?: DerivationPathArray } | number,
 		otherOptions: object = {}
 	) {
+		console.log("connectSecureKeystore", apis, rpcUrls, thorswapApiKey, covalentApiKey, ethplorerApiKey, blockchairApiKey, stagenet);
+
 		if (!encryptedKeystore) {
 			//throw new Error("Keystore is not set. Please set the encrypted keystore before connecting.");
 			//password is phrase
@@ -495,6 +515,8 @@ function connectSecureKeystore({
 
 		setRequestClientConfig({ apiKey: thorswapApiKey });
 
+
+		console.log("Chains", chains);
 		const promises = chains.map(async (chain) => {
 			const dIndex = typeof derivationPathMapOrIndex !== "object" ? derivationPathMapOrIndex : 0;
 			const index = typeof derivationPathMapOrIndex === "number" ? derivationPathMapOrIndex === -1 ? 0 : derivationPathMapOrIndex : 0;

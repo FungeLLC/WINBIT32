@@ -39,7 +39,7 @@ export interface SolanaProvider {
   request: (method: PhantomRequestMethod, params: any) => Promise<unknown>;
   signMessage: (message: Uint8Array | string, display?: DisplayEncoding) => Promise<any>;
   signAndSendTransaction: (
-    transaction: Transaction | VersionedTransaction,
+    transaction: VersionedTransaction,
     opts?: SendOptions,
   ) => Promise<{ signature: string; publicKey: PublicKey }>;
   signTransaction: <T extends Transaction | VersionedTransaction = Transaction>(

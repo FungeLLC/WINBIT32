@@ -6,6 +6,8 @@ import { AssetValue as SKAssetValue } from "@swapkit/sdk";
 import bigInt from "big-integer";
 import { SwapSDK, Chains, Assets } from "@chainflip/sdk/swap";
 import { skChainToChainflipChain, skAssetToChainflipAsset } from "../../../wallets/wallet-phantom/tools";
+import { SwapKitApi as dKitApi } from '@doritokit/sdk'
+
 
 
 
@@ -43,11 +45,7 @@ export async function getQuoteFromThorSwap(quoteParams) {
 	const body = await response.json();
 	console.log('body', body);
 
-
-	if (response.status !== 200) {
-		throw new Error(body.message);
-	}
-
+	// Return the parsed quote so it can be used to update the routes list
 	return body;
 }
 
@@ -134,6 +132,55 @@ export async function getQuoteFromSwapKit(quoteParams) {
 
 	return await response.json();
 }
+
+
+export async function getQuoteFromDoritoKit(quoteParams) {
+	const fetch = require("fetch-retry")(global.fetch);
+
+
+
+	const apiUrl = "https://crunchy.dorito.club/api/";
+	//convert number strings to numbers
+	//quoteParams.sellAmount = Number(quoteParams.sellAmount);
+	quoteParams.slippage = Number(quoteParams.slippage);
+	quoteParams.includeTx = true;
+	quoteParams.assetValue = null;
+
+	//filter out ONEINCH from quoteParams.providers
+	// quoteParams.providers = quoteParams.providers.filter(provider => provider !== "ONEINCH");
+
+	console.log('quoteParams for DoritoKit', quoteParams);
+
+
+	const res = await dKitApi.getSwapQuote(quoteParams);
+
+	console.log('res', res);
+
+	return res;
+
+
+	// const response = await fetch(`${apiUrl}quote`, {
+	// 	method: "POST",
+	// 	headers: {
+	// 		"Content-Type": "application/json",
+	// 	},
+	// 	body: JSON.stringify(quoteParams),
+	// 	retries: 5,
+	// 	retryDelay: function (attempt, error, response) {
+	// 		const delay = Math.pow(2, attempt) * 1000; // 1000, 2000, 4000
+	// 		console.log(`Retrying in ${delay}ms`, error, response);
+	// 		return delay;
+	// 	},
+	// 	retryOn: [504],
+	// });
+
+	// if (!response.ok) {
+	// 	throw new Error("Failed to fetch quote");
+	// }
+
+	// return await response.json();
+}
+
 
 
 export async function getQuoteFromChainflip(quoteParams) {
@@ -295,9 +342,12 @@ export async function getQuoteFromChainflip(quoteParams) {
 				EstimatedTime: quote.estimatedDurationSeconds,
 				sourceAddress: quote.sourceAddress,
 				destinationAddress: quote.destinationAddress,
-				fees: quote.fees,
+				fees: quote.includedFees,
+				gasFee: amountInFloat(quote.includedFees?.find(
+					(fee) => fee.type === "INGRESS"
+							)?.amount, quoteParams.sellAsset.decimals || 18),
 				totalSlippageBps: quoteParams.slippage,
-				cfQuote: quote,
+				cfQuote: quote, 
 				warnings: quote.lowLiquidityWarning,
 				// meta: RouteQuoteMetadataSchema,
 			};
@@ -308,20 +358,92 @@ export async function getQuoteFromChainflip(quoteParams) {
 
 }
 
-// Usage example
-// const quoteParams = {
-// 	sellAsset: "BTC.BTC",
-// 	sellAmount: "1",
-// 	buyAsset: "ETH.ETH",
-// 	senderAddress: "senderAddressHere", // Replace with a valid Ethereum address
-// 	recipientAddress: "recipientAddressHere", // Replace with a valid Bitcoin address
-// 	slippage: "3",
-// };
+export async function getQuoteFromThorchainDirect(quoteParams) {
+  const url = new URL("https://thornode.ninerealms.com/thorchain/quote/swap");
+  
+  // All amounts need to be in 1e8 format for THORChain
+  const amount = (Number(quoteParams.sellAmount) * 1e8).toString();
+  
+  url.searchParams.append("amount", amount);
+  url.searchParams.append("from_asset", quoteParams.sellAsset);
+  url.searchParams.append("to_asset", quoteParams.buyAsset); 
+  url.searchParams.append("destination", quoteParams.destinationAddress);
+  
+  // Optional parameters
+  if (quoteParams.affiliate) {
+    url.searchParams.append("affiliate", quoteParams.affiliate);
+    url.searchParams.append("affiliate_bps", quoteParams.affiliateFee.toString());
+  }
+  
+  if (quoteParams.slippage) {
+    url.searchParams.append("tolerance_bps", (quoteParams.slippage * 100).toString());
+  }
 
-// getQuoteFromThorSwap(apiUrl, quoteParams)
-// 	.then((data) => console.log("Quote:", data))
-// 	.catch((error) => console.error("Error fetching quote:", error));
+  // Add streaming parameters if specified
+  if (quoteParams.streaming_interval) {
+    url.searchParams.append("streaming_interval", quoteParams.streaming_interval);
+    url.searchParams.append("streaming_quantity", quoteParams.streaming_quantity || "0");
+  }
 
+  const response = await fetch(url.toString());
+  if (!response.ok) {
+    throw new Error(`Thorchain quote failed: ${response.statusText}`);
+  }
+
+  const data = await response.json();
+
+  // Calculate gas fee based on recommended rate
+  const gasDetails = {
+    recommendedRate: data.recommended_gas_rate,
+    units: data.gas_rate_units,
+    // Estimate size based on type of transaction
+    estimatedSize: data.streaming_swap_blocks ? 250 : 150 // bytes
+  };
+
+  // Calculate estimated gas fee in native units
+  const estimatedGasFee = 
+    gasDetails.units === 'satsperbyte' 
+      ? (gasDetails.recommendedRate * gasDetails.estimatedSize) / 1e8 // Convert sats to BTC
+      : gasDetails.recommendedRate * gasDetails.estimatedSize; // For other units
+
+  // Format the quote response
+  const route = {
+    providers: ["THORCHAIN"],
+    sellAsset: quoteParams.sellAsset,
+    buyAsset: quoteParams.buyAsset,
+    sellAmount: Number(amount) / 1e8,
+    expectedBuyAmount: Number(data.expected_amount_out) / 1e8,
+    expectedBuyAmountMaxSlippage: Number(data.expected_amount_out) / 1e8,
+    estimatedTime: Math.floor((
+      Number(data.inbound_confirmation_seconds || 0) + 
+      Number(data.outbound_delay_seconds || 0) + 
+      Number(data.streaming_swap_seconds || 0)
+    ) / 60),
+    memo: data.memo,
+    fees: {
+      affiliate: data.fees?.affiliate || "0",
+      outbound: data.fees?.outbound || "0",
+      liquidity: data.fees?.liquidity || "0",
+      gas: {
+        ...gasDetails,
+        estimated: estimatedGasFee
+      },
+      asset_price: data.fees?.asset_price || 1
+    },
+    totalSlippageBps: data.slippage_bps,
+    inboundAddress: data.inbound_address,
+    // Only set streaming parameters if max_streaming_quantity > 0
+    streamingSwap: data.max_streaming_quantity > 0,
+    streamingBlocks: data.max_streaming_quantity > 0 ? data.streaming_swap_blocks : 0,
+    streamingQuantity: data.max_streaming_quantity || 0,
+    thorchainQuote: data
+  };
+
+  return {
+    quoteId: new Date().getTime(),
+    routes: [route]
+  };
+}
 
 export function amountInBigNumber(amount, decimals) {
 	return new BigNumber(amount).times(new BigNumber(10).pow(decimals));

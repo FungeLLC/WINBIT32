@@ -14,7 +14,7 @@ import type {
   SwapDepositResponse,
   WithdrawFeeResponse,
 } from "./types";
-import { fromBase64 } from "../../toolbox/cosmos";
+import { fromBase64 } from "../../../../reacttest/bitx_main/src/components/toolbox/cosmos";
 
 export const chainToChainflipChain = new Map<Chain, keyof typeof Chains>([
   [Chain.Arbitrum, Chains.Arbitrum],

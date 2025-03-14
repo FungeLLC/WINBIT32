@@ -6,6 +6,8 @@ const baseUrlV1 = "https://api.thorswap.net";
 
 export const formatNumber = (number, precision = 8) => {
 	if(!number && number !== 0) return false;
+	number = parseFloat(number);
+	
 	if (number < 1) {
 		return number.toFixed(precision);
 	} else if (number < 10) {
@@ -18,14 +20,50 @@ export const formatNumber = (number, precision = 8) => {
 	return Math.floor(number);
 };
 
+export const formatUSDValue = (value) => {
+  if (!value && value !== 0) return '';
+  return `($${formatNumber(value, 2)})`;
+};
 
-export const formatBalance = (bigIntValue, decimals, precision = 8) => {
-	const factor = bigInt(10).pow(decimals);
-	const integerPart = bigIntValue.divide(factor);
-	const fractionalPart = bigIntValue.mod(factor).toJSNumber() / factor.toJSNumber();
-	const balance = integerPart.toJSNumber() + fractionalPart;
+export const formatBalanceWithUSD = (balance, usdValue) => {
+  if (!balance) return '0';
+  const formattedBalance = formatBalance(balance);
+  const formattedUSD = formatUSDValue(usdValue);
+  return `${formattedBalance} ${formattedUSD}`;
+};
 
-	return formatNumber(balance, precision);
+export const formatBalance = (balance) => {
+  if (!balance) return '0';
+
+  // Handle array of balances
+  if (Array.isArray(balance)) {
+    return formatNumber(
+      balance.reduce((sum, b) => sum + (parseFloat(b.amount) || 0), 0)
+    );
+  }
+
+  // Handle BigInt value
+  if (typeof balance === 'bigint') {
+    return formatNumber(Number(balance) / 1e8);
+  }
+
+  // Handle object with balance field
+  if (balance.balance) {
+    return formatNumber(parseFloat(balance.balance));
+  }
+
+  // Handle object with amount property
+  if (balance.amount !== undefined) {
+    return formatNumber(parseFloat(balance.amount));
+  }
+
+  // Handle decimal & decimalMultiplier
+  if (balance.decimal !== undefined && balance.bigIntValue !== undefined) {
+    return formatNumber(Number(balance.bigIntValue) / Math.pow(10, balance.decimal));
+  }
+
+  // Handle simple number
+  return formatNumber(balance);
 };
 
 
@@ -46,14 +84,48 @@ export function getExplorerAddressUrl(
 }
 //https://api.thorswap.net/tracker/v2/txn
 
-export function getTxnDetails(txHash) {
+export async function getTxnDetails(txHash) {
+
+	if(typeof txHash === "object"){
+
+		if(txHash.signature){
+			txHash = [txHash.signature, txHash.chainId];
+		}else{
+			txHash = [txHash.hash, txHash.chainId];
+		}
+	}
+
 	console.log("getTxnDetails", txHash);
-	return RequestClient.post(`${baseUrlV1}/tracker/v2/txn`, {
-		body: JSON.stringify(txHash),
+	
+	const url = `https://crunchy.dorito.club/api/track`;
+
+	const body = {
+		hash: txHash[0],
+		chainId: txHash[1],
+	}
+
+	let res = await RequestClient.post(url, {
+		body: JSON.stringify(body),
 		headers: {
 			"Content-Type": "application/json",
 		},
 	});
+
+
+	console.log('res', res);
+
+	if(!res.status){
+		res.status = 'pending';
+	}
+
+
+	return {
+		...res,
+		done: (res.status === 'completed'),
+		status: res.status,
+		txn: res.txn || txHash[0],
+		lastCheckTime: new Date(),
+	}
 }
 
 export function getTxnDetailsV2(txHash, from) {
@@ -90,16 +162,16 @@ export const checkTxnStatus = async (
 	if (
 		swapInProgress &&
 		txnHash &&
-		txnHash !== "" &&
+		txnHash.length > 0 &&
 		txnHash === _txnHash &&
 		txnStatus?.done !== true &&
 		txnStatus?.lastCheckTime &&
 		new Date() - txnStatus?.lastCheckTime > 1000 &&
 		cnt < 100
 	) {
-		console.log("Getting txn details", txnHash.toString());
+		console.log("Getting txn details", txnHash);
 		
-		const status = await getTxnDetails({ hash: txnHash.toString() }).catch(
+		const status = await getTxnDetails(txnHash).catch(
 			(error) => {
 				//setStatusText("Error getting transaction details");
 				setSwapInProgress(false);
@@ -113,7 +185,7 @@ export const checkTxnStatus = async (
 				setTimeout(() => {
 					checkTxnStatus(
 						txnHash,
-						txnHash + "",
+						txnHash[0],
 						cnt + 1,
 						swapInProgress,
 						txnStatus,
@@ -132,7 +204,7 @@ export const checkTxnStatus = async (
 		status.lastCheckTime = new Date();
 		setTxnStatus(status);
 		console.log("status", status);
-		if (status?.done === false && status?.result?.legs?.length > 0) {
+		if (status?.done === false) {
 			setProgress((prev) => (prev < 95 ? prev + 1 : 95));
 			const delay =
 				((status.result.legs.slice(-1).estimatedEndTimestamp -
@@ -147,7 +219,7 @@ export const checkTxnStatus = async (
 				setTimeout(() => {
 					checkTxnStatus(
 						txnHash,
-						txnHash + "",
+						txnHash[0],
 						cnt + 1,
 						swapInProgress,
 						txnStatus,
@@ -186,29 +258,45 @@ export const checkTxnStatus = async (
 
 export const getTxnUrl = (txHash, chain, skClient) => {
 	try {
+		if(typeof txHash === "string"){
+			txHash = [txHash, chain];
+		}else if(typeof txHash === "object"){
+			txHash = [txHash.signature, chain];
+		}
+
+		
 		if(txHash === null){
 			return "";
 		}
+
+		if(txHash.length === 0){
+			return "";
+		}
+		
+		if(!chain){
+			chain = chainIdToChain[txHash[1]];
+		}
+		
 		switch (chain) {
 			case Chain.THORChain:
 			case Chain.Maya:
 			case Chain.Bitcoin:
 			case Chain.Ethereum:
-				return `https://www.xscanner.org/tx/${txHash}`;
+				return `https://www.xscanner.org/tx/${txHash[0]}`;
 
 			case Chain.Solana:
-				return 'https://solscan.io/tx/' + txHash;
+				return 'https://solscan.io/tx/' + txHash[0];
 			default:
-				return skClient.getExplorerTxUrl({ chain, txHash });
+				return skClient.getExplorerTxUrl({ chain, txHash: txHash[0] });
 		}
 	} catch (error) {
 		console.log("error", error, txHash, chain, skClient);
 		if (chain === "XRD" || chain === 'radix-mainnet') {
-			if (txHash?.id)
-				return `https://dashboard.radixdlt.com/transaction/${txHash?.id}`;
-			else return `https://dashboard.radixdlt.com/transaction/${txHash}`;
+			if (txHash?.[0]?.id)
+				return `https://dashboard.radixdlt.com/transaction/${txHash?.[0]?.id}`;
+			else return `https://dashboard.radixdlt.com/transaction/${txHash?.[0]}`;
 		} else {
-			return "https://www.mayascan.org/tx/" + txHash;
+			return "https://www.xscanner.org/tx/" + txHash?.[0];
 		}
 	}
 }

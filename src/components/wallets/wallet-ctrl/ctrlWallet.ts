@@ -46,6 +46,8 @@ async function getWalletMethodsForChain({
   blockchairApiKey,
   covalentApiKey,
   ethplorerApiKey,
+  apis,
+  rpcUrls,
 }: ConnectConfig & { chain: (typeof CTRL_SUPPORTED_CHAINS)[number] }) {
   switch (chain) {
     case Chain.Solana: {
@@ -144,7 +146,7 @@ async function getWalletMethodsForChain({
       const apiKeys = ensureEVMApiKeys({ chain, covalentApiKey, ethplorerApiKey });
       const provider = new BrowserProvider(ethereumWindowProvider, "any");
       const signer = await provider.getSigner();
-      const toolbox = getToolboxByChain(chain)({ ...apiKeys, provider, signer });
+      const toolbox = getToolboxByChain(chain)({ ...apiKeys, provider, signer, rpcUrl: rpcUrls[chain], api: apis[chain] });
       const ctrlMethods = getCtrlMethods(provider);
 
       try {
@@ -166,7 +168,7 @@ async function getWalletMethodsForChain({
         });
       }
 
-      const api =
+      const api = apis[chain] ||
         chain === Chain.Ethereum
           ? ethplorerApi(apiKeys.ethplorerApiKey)
           : covalentApi({ apiKey: apiKeys.covalentApiKey, chainId: ChainToChainId[chain] });
@@ -198,6 +200,8 @@ async function getWalletMethodsForChain({
 
 function connectCTRL({
   addChain,
+  apis,
+  rpcUrls,
   config: { covalentApiKey, ethplorerApiKey, blockchairApiKey, thorswapApiKey },
 }: ConnectWalletParams) {
   return async (chains: (typeof CTRL_SUPPORTED_CHAINS)[number][]) => {
@@ -210,6 +214,8 @@ function connectCTRL({
         blockchairApiKey,
         covalentApiKey,
         ethplorerApiKey,
+        apis,
+        rpcUrls,
       });
 
       addChain({

@@ -25,6 +25,11 @@ import {
 	ComputeBudgetProgram
 } from "@solana/web3.js";
 import {
+
+	type SendOptions,
+	type VersionedTransaction,
+} from "@solana/web3.js";
+import {
 	AssetValue,
 	Chain,
 	ChainId,
@@ -34,12 +39,15 @@ import {
 	SwapKitError,
 	SwapKitNumber,
 	type WalletTxParams,
-} from "@swapkit/helpers";
+} from "@doritokit/helpers";
 import { getPublicKey } from "ed25519-hd-key";
 import { HDKey } from "micro-key-producer/slip10.js";
 import bs58 from "bs58";
 import { mnemonicToEntropy } from "bip39";
 import { e, index } from "mathjs";
+import { SOLToolbox as SOLToolboxDori } from "@doritokit/toolbox-solana";
+import { Buffer } from 'buffer';
+import * as web3 from "@solana/web3.js";
 
 export function validateAddress(address: string) {
 	try {
@@ -60,7 +68,7 @@ export function getPublicKeyFromAddress(address: string) {
 }
 
 
-function createKeysForPath({
+export function createKeysForPath({
 	phrase,
 	derivationPath = DerivationPath.SOL,
 }: {
@@ -557,7 +565,7 @@ export async function getTransferTransaction(connection: Connection, recipient: 
 
 	// set the desired priority fee
 	const addPriorityFee = ComputeBudgetProgram.setComputeUnitPrice({
-		microLamports: prioritizationFee,
+		microLamports: prioritizationFee + 10
 	});
 
 	// add the instructions to the transaction
@@ -646,24 +654,64 @@ function signAllTransactions(transactions: Transaction[], fromKeypair: Keypair) 
 	return transactions.map((transaction) => signTransaction(transaction, fromKeypair));
 }
 
-function signAndSendTransaction(connection: Connection, transaction: Transaction, fromKeypair: Keypair) {
 
-	transaction.feePayer = fromKeypair.publicKey;
-	transaction.sign(fromKeypair);
+function signAndSendTransaction(connection: Connection, fromKeypair: Keypair) {
+	return async(transaction: VersionedTransaction, opts?: SendOptions & { fromKeypair: Keypair }) => {
+		console.log('signAndSendTransaction', transaction, opts, fromKeypair);
+		if (!opts?.fromKeypair && !fromKeypair) {
+			throw new SwapKitError("core_wallet_not_keypair_wallet");
+		}
+		const keypairToUse = opts?.fromKeypair || fromKeypair;
+		
+		// Both regular Transaction and VersionedTransaction have a sign method
+		// that takes an array of signers
+		if (typeof transaction.sign !== 'function') {
+			transaction = new web3.VersionedTransaction(transaction.message);
+			console.log('transaction is a VersionedTransaction', transaction);
+		}
+		
+		transaction.sign([keypairToUse]);
 
-	return sendAndConfirmTransaction(connection, transaction, [fromKeypair]);
+		console.log('signed transaction', transaction);
+
+		opts.fromKeypair = keypairToUse;
+
+		// Execute the transaction
+		const latestBlockHash = await connection.getLatestBlockhash();
+		const rawTransaction = transaction.serialize();
+		const txid = await connection.sendRawTransaction(rawTransaction, {
+			skipPreflight: true,
+			maxRetries: 2
+		});
+		await connection.confirmTransaction({
+			blockhash: latestBlockHash.blockhash,
+			lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
+			signature: txid
+		});
+
+		return txid;
+
+
+	};
+}
+
+function broadcastTransaction(connection: Connection) {
+	return (transaction: Transaction) => {
+		return connection.sendRawTransaction(transaction.serialize());
+	};
 }
 
 
+export const SOLToolbox = ({ rpcUrl = RPCUrl.Solana, fromKeypair }: { rpcUrl?: string, fromKeypair?: Keypair } = {}) => {
 
 
-export const SOLToolbox = ({ rpcUrl = RPCUrl.Solana }: { rpcUrl?: string } = {}) => {
-	const connection = new Connection(rpcUrl, "confirmed");
+	const doriToolbox = SOLToolboxDori({ rpcUrl });
+	const connection = doriToolbox.connection;
 	const tokenInfos: TokenInfos = {};
 
 	return {
-		connection,
-
+		...doriToolbox,
+		signAndSendTransaction: signAndSendTransaction(connection, fromKeypair),
 		createKeysForPath,
 		getAddressFromKeys,
 		getBalance: getBalance(connection, tokenInfos),
@@ -671,6 +719,5 @@ export const SOLToolbox = ({ rpcUrl = RPCUrl.Solana }: { rpcUrl?: string } = {})
 		validateAddress,
 		signTransaction,
 		signAllTransactions,
-		signAndSendTransaction,
 	};
 };

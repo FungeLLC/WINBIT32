@@ -6,7 +6,55 @@ import { chainImages, fetchCategories, fetchTokensByCategory } from "./includes/
 import { debounce } from "lodash";
 
 const TokenChooserDialog = ({ isOpen, onClose, onConfirm, providerKey, wallets, otherToken, windowId, inputRef }) => {
-	const { providers: unfilteredProviders, tokens: unfilteredTokens, providerNames } = useWindowSKClient(providerKey);
+	const { providers: unfilteredProviders = [], tokens: unfilteredTokens = [], providerNames = {}, loadProvidersAndTokens, loadTokens } = useWindowSKClient(providerKey);
+	
+	// Add loading state to show loading indicator
+	const [tokenLoadingStatus, setTokenLoadingStatus] = useState('idle'); // 'idle', 'loading', 'loaded', 'error'
+	
+	// Add debug logging
+	useEffect(() => {
+		console.log("TokenChooserDialog received tokens:", unfilteredTokens);
+		console.log("TokenChooserDialog received providers:", unfilteredProviders);
+		
+		// Update token loading status based on tokens availability
+		if (unfilteredTokens && unfilteredTokens.length > 0) {
+			setTokenLoadingStatus('loaded');
+		}
+	}, [unfilteredTokens, unfilteredProviders]);
+	
+	// Add explicit token loading when component mounts
+	useEffect(() => {
+		if (isOpen && (!unfilteredTokens || unfilteredTokens.length === 0)) {
+			console.log("TokenChooserDialog: No tokens found, loading tokens...");
+			setTokenLoadingStatus('loading');
+			
+			if (loadProvidersAndTokens && typeof loadProvidersAndTokens === 'function') {
+				loadProvidersAndTokens()
+					.then(() => {
+						console.log("TokenChooserDialog: Tokens loaded successfully");
+						setTokenLoadingStatus('loaded');
+					})
+					.catch(error => {
+						console.error("TokenChooserDialog: Failed to load tokens:", error);
+						setTokenLoadingStatus('error');
+					});
+			} else if (loadTokens && typeof loadTokens === 'function') {
+				loadTokens()
+					.then((tokens) => {
+						console.log("TokenChooserDialog: Tokens loaded successfully:", tokens?.length || 0);
+						setTokenLoadingStatus('loaded');
+					})
+					.catch(error => {
+						console.error("TokenChooserDialog: Failed to load tokens:", error);
+						setTokenLoadingStatus('error');
+					});
+			} else {
+				console.error("TokenChooserDialog: No token loading function available");
+				setTokenLoadingStatus('error');
+			}
+		}
+	}, [isOpen, unfilteredTokens, loadProvidersAndTokens, loadTokens]);
+	
 	const [selectedChain, setSelectedChain] = useState("");
 	const [selectedProvider, setSelectedProvider] = useState("");
 	const [selectedToken, setSelectedToken] = useState(null);
@@ -18,12 +66,21 @@ const TokenChooserDialog = ({ isOpen, onClose, onConfirm, providerKey, wallets, 
 	const [restrictToProviders, setRestrictToProviders] = useState(null);
 	const [searchTextActive, setSearchTextActive] = useState(false);
 	const [providers, setProviders] = useState([]);
-	const tokens = useMemo(() => unfilteredTokens.filter(token => 
-		(token.provider.includes("THOR") || token.provider.includes("MAYA") || token.provider.includes("CHAINFLIP"))
-		&&
-		token.identifier.includes("/") === false
-	), [unfilteredTokens]);
+	const tokens = useMemo(() => {
+		console.log("Filtering tokens from:", unfilteredTokens);
+		if (!unfilteredTokens || unfilteredTokens.length === 0) {
+			return [];
+		}
+		return unfilteredTokens.filter(token => 
+			(token && token.provider && (token.provider.includes("THOR") || token.provider.includes("MAYA") || token.provider.includes("CHAINFLIP")))
+			&&
+			(token && token.identifier && token.identifier.includes("/") === false)
+		);
+	}, [unfilteredTokens]);
 
+	useEffect(() => {
+		console.log("Filtered tokens result:", tokens);
+	}, [tokens]);
 
 	const observer = useRef(new IntersectionObserver((entries) => {
 		entries.forEach(entry => {
@@ -37,13 +94,18 @@ const TokenChooserDialog = ({ isOpen, onClose, onConfirm, providerKey, wallets, 
 	}, { rootMargin: '200px' }));
 
 	useEffect(() => {
-
-		//filter out all ohters
-		const providers = unfilteredProviders.filter((provider) => {
-			return provider.provider.includes("THOR") || provider.provider.includes("MAYA") || provider.provider.includes("CHAINFLIP");
-		});
-		setProviders(providers);
-
+		// Filter providers safely - with added defensive coding
+		if (unfilteredProviders && Array.isArray(unfilteredProviders)) {
+			const filteredProviders = unfilteredProviders.filter((provider) => {
+				return provider && provider.provider && 
+					(provider.provider.includes("THOR") || 
+					provider.provider.includes("MAYA") || 
+					provider.provider.includes("CHAINFLIP"));
+			});
+			setProviders(filteredProviders);
+		} else {
+			setProviders([]);
+		}
 	}, [unfilteredProviders]);
 
 
@@ -110,7 +172,7 @@ const TokenChooserDialog = ({ isOpen, onClose, onConfirm, providerKey, wallets, 
 
 	//get tokens in selected category
 	useEffect(() => {
-		console.log("TokenChooserDialog useEffect selectedCategory", selectedCategory);
+		console.log("TokenChooserDialog useEffect selectedCategory", selectedCategory, tokens);
 		if(selectedCategory && selectedCategory !== "") {
 			if(selectedCategory === "wallet" && wallets && wallets.length > 0) {
 				const walletTokens = wallets.reduce((acc, wallet) => {
@@ -149,35 +211,104 @@ const TokenChooserDialog = ({ isOpen, onClose, onConfirm, providerKey, wallets, 
 
 	// Filter tokens by selected category, if there is one selected
 	const categoryFilteredTokens = useMemo(() => {
-		console.log("categoryFilteredTokens", selectedCategory, tokensByCategory, wallets, otherToken);
-		if (!selectedCategory || selectedCategory === "") return tokens;
-		if (selectedCategory === "wallet") return tokens.filter(token => wallets.some(wallet => wallet.balance?.some(balance => identifierFromBalance(balance) === token.identifier.replace('/', '.').toUpperCase().replace('0X','0x'))));
-		if (selectedCategory === "other") return tokens.filter(token => otherToken.some(other => other.providers.some(provider => provider.includes(token.provider))));
+		console.log("Calculating categoryFilteredTokens with:", {
+			selectedCategory,
+			tokensByCategory,
+			wallets,
+			otherToken,
+			tokens: tokens?.length || 0
+		});
+		
+		if (!tokens || tokens.length === 0) {
+			console.log("No tokens available for category filtering");
+			return [];
+		}
+		
+		if (!selectedCategory || selectedCategory === "") {
+			console.log("No category selected, returning all tokens");
+			return tokens;
+		}
+		
+		if (selectedCategory === "wallet") {
+			if (!wallets || wallets.length === 0) {
+				console.log("No wallets available for wallet category");
+				return [];
+			}
+			const result = tokens.filter(token => wallets.some(wallet => 
+				wallet.balance?.some(balance => identifierFromBalance(balance) === token.identifier.replace('/', '.').toUpperCase().replace('0X','0x'))
+			));
+			console.log("Wallet category filtered tokens:", result);
+			return result;
+		}
+		
+		if (selectedCategory === "other") {
+			if (!otherToken || otherToken.length === 0) {
+				console.log("No other token available for other category");
+				return [];
+			}
+			const result = tokens.filter(token => otherToken.some(other => 
+				other.providers.some(provider => provider.includes(token.provider))
+			));
+			console.log("Other category filtered tokens:", result);
+			return result;
+		}
 
 		// if a token is in the selected category, it will be in the tokensByCategory[selectedCategory] array with the same identifier
-		if (!tokensByCategory[selectedCategory]) return [];
-		return tokens.filter(token => tokensByCategory[selectedCategory].find(t => t.symbol.toUpperCase() === token.ticker.toUpperCase()));
+		if (!tokensByCategory[selectedCategory]) {
+			console.log("No tokens in category:", selectedCategory);
+			return [];
+		}
+		
+		const result = tokens.filter(token => 
+			tokensByCategory[selectedCategory].find(t => t.symbol?.toUpperCase() === token.ticker?.toUpperCase())
+		);
+		console.log("Category filtered tokens:", result);
+		return result;
 
-	}, [tokens, selectedCategory, tokensByCategory]);
+	}, [tokens, selectedCategory, tokensByCategory, wallets, otherToken, identifierFromBalance]);
 
 
 
 	const providerFilteredTokens = useMemo(() => {
-		console.log("providerFilteredTokens", selectedProvider, categoryFilteredTokens, restrictToProviders);
+		console.log("Calculating providerFilteredTokens with:", {
+			selectedProvider,
+			categoryFilteredTokens: categoryFilteredTokens?.length || 0,
+			restrictToProviders
+		});
+		
+		if (!categoryFilteredTokens || categoryFilteredTokens.length === 0) {
+			console.log("No tokens available from category filtering");
+			return [];
+		}
+		
 		let t = categoryFilteredTokens;
-		if(restrictToProviders && restrictToProviders.length > 0){
-			return t.filter(token => restrictToProviders.includes(token.provider));
+		
+		if (restrictToProviders && restrictToProviders.length > 0) {
+			const result = t.filter(token => restrictToProviders.includes(token.provider));
+			console.log("Provider restricted tokens:", result);
+			return result;
 		}
 
-
-		if(!selectedProvider
-			|| selectedProvider === "") return t;
+		if (!selectedProvider || selectedProvider === "") {
+			console.log("No provider selected, returning all category filtered tokens");
+			return t;
+		}
 		
-		return t.filter(token => token.provider === selectedProvider);
+		const result = t.filter(token => token.provider === selectedProvider);
+		console.log("Provider filtered tokens:", result);
+		return result;
 	}, [categoryFilteredTokens, selectedProvider, restrictToProviders]);
 
 
 	const filteredTokens = useMemo(() => {
+		console.log("Calculating filteredTokens with:", {
+			tokens,
+			selectedChain,
+			selectedProvider,
+			searchTerm,
+			userInteracted,
+			categoryFilteredTokens
+		});
 
 		const filtered = categoryFilteredTokens.filter(token => {
 			return (!selectedChain || token.chain === selectedChain) &&
@@ -194,7 +325,9 @@ const TokenChooserDialog = ({ isOpen, onClose, onConfirm, providerKey, wallets, 
 			}
 		});
 
-		return Array.from(tokenMap.values());
+		const result = Array.from(tokenMap.values());
+		console.log("Final filteredTokens result:", result);
+		return result;
 	}, [tokens, selectedChain, selectedProvider, searchTerm, userInteracted, wallets, isOpen, otherToken, restrictToProviders, providerFilteredTokens, categoryFilteredTokens]);
 
 	const uniqueChains = useMemo(() => {
@@ -300,6 +433,68 @@ const TokenChooserDialog = ({ isOpen, onClose, onConfirm, providerKey, wallets, 
 		}
 	}, [searchTextActive]);
 		if (!isOpen) return null;
+
+	// Add effect to ensure tokens are loaded
+	useEffect(() => {
+		if ((!unfilteredTokens || unfilteredTokens.length === 0) && providerKey) {
+			console.log("No tokens loaded, attempting to load tokens for provider key:", providerKey);
+			// This will trigger the context to load tokens if they're not already loaded
+		}
+	}, [unfilteredTokens, providerKey]);
+
+	// Add a loading indicator in the dialog
+	if (isOpen && tokenLoadingStatus === 'loading') {
+		return (
+			<DialogBox
+				title="Loading Tokens"
+				isOpen={isOpen}
+				onClose={onClose}
+				icon=""
+				buttons={[
+					{ label: "Cancel", onClick: onClose }
+				]}
+				showMinMax={false}
+				dialogClass="dialog-box-row-adapt"
+				buttonClass="dialog-buttons-column"
+			>
+				<div className="token-chooser-dialog">
+					<div className="loading-container" style={{ textAlign: 'center', padding: '20px' }}>
+						<p>Loading tokens from providers...</p>
+						<div className="loading-indicator"></div>
+						<p>This may take a few moments.</p>
+					</div>
+				</div>
+			</DialogBox>
+		);
+	}
+	
+	// Add an error state
+	if (isOpen && tokenLoadingStatus === 'error') {
+		return (
+			<DialogBox
+				title="Token Loading Error"
+				isOpen={isOpen}
+				onClose={onClose}
+				icon=""
+				buttons={[
+					{ label: "Retry", onClick: () => {
+						setTokenLoadingStatus('loading');
+						loadProvidersAndTokens().catch(() => setTokenLoadingStatus('error'));
+					}},
+					{ label: "Cancel", onClick: onClose }
+				]}
+				showMinMax={false}
+				dialogClass="dialog-box-row-adapt"
+				buttonClass="dialog-buttons-column"
+			>
+				<div className="token-chooser-dialog">
+					<div className="error-container" style={{ textAlign: 'center', padding: '20px' }}>
+						<p>Failed to load tokens. Please check your connection and try again.</p>
+					</div>
+				</div>
+			</DialogBox>
+		);
+	}
 
 	return (
 		<DialogBox

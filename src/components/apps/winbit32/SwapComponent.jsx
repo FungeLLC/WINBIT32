@@ -7,9 +7,9 @@ import './styles/SwapComponent.css';
 import ProgressBar from '../../win/ProgressBar';
 import { saveAs } from 'file-saver';
 import MenuBar from '../../win/MenuBar';
-import { Chain, FeeOption } from '@swapkit/sdk';
+import { Chain, ChainId, FeeOption } from '@swapkit/sdk';
 import { getQuotes } from './helpers/quotes';
-import { chooseWalletForToken, handleSwap, handleTokenSelect, updateDestinationAddress, delayedParseIniData } from './helpers/handlers';
+import { chooseWalletForToken, handleSwap, handleTokenSelect, updateDestinationAddress, delayedParseIniData, parseIniData } from './helpers/handlers';
 import { checkTxnStatus, formatBalance } from './helpers/transaction';
 import { handleApprove } from './helpers/handlers';
 import DialogBox from '../../win/DialogBox';
@@ -43,8 +43,9 @@ const SwapComponent = ({
 	metadata,
 	hashPath,
 	sendUpHash,
+	windowA
 }) => {
-	const { skClient, tokens, wallets, chainflipBroker } = useWindowSKClient(providerKey);
+	const { skClient, tokens, wallets, chainflipBroker, providers } = useWindowSKClient(providerKey);
 	const { isRandomPhrase } = programData;
 	const { license, embedMode } = appData || {}
 	const [swapFrom, setSwapFrom] = useIsolatedState(windowId, 'swapFrom', metadata.swapFrom || null);
@@ -66,7 +67,7 @@ const SwapComponent = ({
 	const [progress, setProgress] = useIsolatedState(windowId, 'progress', 0);
 	const [showProgress, setShowProgress] = useIsolatedState(windowId, 'showProgress', false);
 	const [explorerUrls, setExplorerUrls] = useIsolatedState(windowId, 'explorerUrls', '');
-	const [txnHash, setTxnHash] = useIsolatedState(windowId, 'txnHash', '');
+	const [txnHash, setTxnHash] = useIsolatedState(windowId, 'txnHash', []);
 	const [txnStatus, setTxnStatus] = useIsolatedState(windowId, 'txnStatus', '');
 	const currentTxnStatus = useRef(txnStatus);
 	const [statusText, setStatusText] = useIsolatedState(windowId, 'statusText', '');
@@ -91,7 +92,7 @@ const SwapComponent = ({
 	const onSave = metadata.onSave;
 	const onCancel = metadata.onCancel;
 
-	console.log('Swap component metadata ini:', metadata);
+	// console.log('Swap component metadata ini:', metadata);
 
 	const txnTimerRef = useRef(txnTimer);
 
@@ -147,7 +148,8 @@ const SwapComponent = ({
 			iniData,
 			thorAffiliate, mayaAffiliate,
 			setThorAffiliate, setMayaAffiliate,
-			streamingNumSwaps, streamingInterval
+			streamingNumSwaps, streamingInterval,
+			providers
 		);
 
 
@@ -196,7 +198,7 @@ swap_count=${streamingNumSwaps}
 
 
 	useEffect(() => {
-		if (iniData) {
+		if (iniData && !editMode) {
 			//convert to query string style and sendUpHash
 			const lines = iniData.split('\n');
 			let query = '';
@@ -243,7 +245,7 @@ swap_count=${streamingNumSwaps}
 	}, [swapFrom, swapTo, amount, destinationAddress, slippage, mayaAffiliate, thorAffiliate]);
 
 	useEffect(() => {
-		if (txnHash !== '') checkTxnStatus(txnHash, txnHash + '', 0, swapInProgress, txnStatus, setStatusText, setSwapInProgress, setShowProgress, setProgress, setTxnStatus, setTxnTimer, txnTimerRef);
+		if (txnHash && txnHash.length > 0) checkTxnStatus(txnHash, txnHash[0], 0, swapInProgress, txnStatus, setStatusText, setSwapInProgress, setShowProgress, setProgress, setTxnStatus, setTxnTimer, txnTimerRef);
 	}, [txnHash]);
 
 
@@ -352,9 +354,22 @@ swap_count=${streamingNumSwaps}
 
 	useEffect(() => {
 		if(initialIniData && initialIniData.length > 0){
+			setTextareaActive(true);
+
 			console.log('Initial INI data:', initialIniData);
 			setIniData(initialIniData);
-			setInitialIniData('');
+
+			delayedParseIniData(initialIniData, setIniData, setSwapFrom, setSwapTo, setAmount, setDestinationAddress, setFeeOption, setSlippage, setSelectedRoute, setRoutes, routes, tokens,
+				setManualStreamingSet,
+				setStreamingInterval,
+				setStreamingNumSwaps);
+
+
+			setTimeout(() => {
+				setTextareaActive(false);
+				setInitialIniData('');
+			}, 1000);
+
 		}
 		else if (hashPath && hashPath.length > 0 && tokens && tokens.length > 0 && !metadata.swapFrom && !metadata.swapTo) {
 			setTextareaActive(true);
@@ -524,7 +539,8 @@ swap_count=${streamingNumSwaps}
 					setThorAffiliate,
 					setMayaAffiliate,
 					streamingNumSwaps,
-					streamingInterval
+					streamingInterval,
+					providers
 				);
 
 				setProgress(13 + (i * 7));
@@ -651,8 +667,27 @@ swap_count=${streamingNumSwaps}
 
 
 	const handleSaveClick = () => {
-		onSave?.(iniData);
+		const oRoute =
+			selectedRoute === "optimal" && routes.length > 0
+				? routes.find(({ optimal }) => optimal) || routes[0]
+				: routes.find((route) => route.providers.join(", ") === selectedRoute);
+
+		if (!onSave || onSave?.(iniData, { route: oRoute, expectedOut: oRoute?.expectedBuyAmount, 
+			swapFrom, swapTo, amount, destinationAddress, slippage, feeOption, selectedRoute, routes, isStreamingSwap,
+			 streamingInterval, streamingNumSwaps })) {
+				//close the window
+				windowA?.close();
+		}
+
 	};
+
+	const handleCancelClick = () => {
+		onCancel?.();
+		//close the window
+		windowA.close();
+	}
+
+
 
 	return (
 
@@ -661,7 +696,7 @@ swap_count=${streamingNumSwaps}
 				{editMode ? (
 					<EditModeButtons>
 						<button onClick={handleSaveClick}>Save</button>
-						<button onClick={onCancel}>Cancel</button>
+						<button onClick={handleCancelClick}>Cancel</button>
 					</EditModeButtons>
 				) : (
 					
@@ -761,7 +796,7 @@ swap_count=${streamingNumSwaps}
 						}
 						<button className='swap-toolbar-button' onClick={() => {
 							setSwapInProgress(false);
-							setTxnHash('');
+							setTxnHash([]);
 							setTxnStatus('');
 							setStatusText("");
 							doGetQuotes(true);

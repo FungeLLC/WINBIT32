@@ -51,7 +51,7 @@ export async function getQuoteFromMaya(quoteParams, swapTo, swapFrom){
 	const mayaQuoteParams = {
 		from_asset: swapFrom.identifier,
 		to_asset: swapTo.identifier,
-		amount: quoteParams.sellAmount,
+		amount: quoteParams.assetValue.getBaseValue("string"),
 		destination: quoteParams.destinationAddress,
 		// affiliate_bps: quoteParams.affiliateFee,
 		// affiliate: quoteParams.affiliate,

@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="UTF-8" />
+	<title>Dynamic Terminal Feed (Chunk Typing, Partial Line Updates)</title>
+	<style>
+		html,
+		body {
+			margin: 0;
+			padding: 0;
+			height: 100%;
+			background-color: #111;
+			/* Off-black behind everything */
+		}
+
+		body {
+			display: flex;
+			flex-direction: column;
+			font-family: monospace;
+			color: #0f0;
+			/* Green-on-black */
+		}
+
+		h1 {
+			margin: 10px;
+			font-weight: normal;
+			color: #0f0;
+		}
+
+		#status {
+			margin: 0 10px;
+			font-size: 0.85em;
+			color: #6f6;
+			/* Lighter green */
+		}
+
+		/* Our tall "terminal" container */
+		#terminal {
+			flex: 1;
+			background: #000;
+			overflow-y: auto;
+			padding: 10px;
+			box-sizing: border-box;
+			display: flex;
+			flex-direction: column;
+			justify-content: flex-end;
+			/* Start typing at bottom if not enough content */
+		}
+
+		.line {
+			white-space: pre;
+			/* We handle line breaks ourselves */
+			line-height: 1.4;
+			margin: 0;
+		}
+
+		/* Absolutely positioned container for measuring text width */
+		#measure-container {
+			position: absolute;
+			top: -9999px;
+			left: -9999px;
+			visibility: hidden;
+			white-space: pre;
+			font-family: monospace;
+		}
+	</style>
+</head>
+
+<body>
+	<p id="status">Initialising...</p>
+
+	<div id="terminal"></div>
+
+	<!-- Off-screen container to measure character widths -->
+	<div id="measure-container"></div>
+
+	<script>
+		// We'll be decent folks and use tabs
+		const statusEl = document.getElementById('status');
+		const terminalEl = document.getElementById('terminal');
+		const measureContainer = document.getElementById('measure-container');
+
+		// We'll store the current guess of how many chars fit per line
+		let CHARS_PER_LINE = 80;             // fallback default
+		const CHUNK_SIZE = 4;               // type 4 chars at a time (typing effect)
+		const TYPING_DURATION_MS = 600_000;  // 10 minutes total to type a full block
+		const MAX_LINES = 500;              // discard oldest lines if exceed
+
+		let blockQueue = [];         // queued blocks awaiting typing
+		let isTyping = false;        // are we currently typing a block?
+		let currentBlockHash = null; // which block is being typed?
+
+		window.addEventListener('load', () => {
+			// small delay so fonts can render
+			setTimeout(() => {
+				recalculateCharsPerLine();
+				// recalc whenever we resize
+				window.addEventListener('resize', recalculateCharsPerLine);
+
+				// start fetching blocks
+				fetchNewBlock();
+				setInterval(fetchNewBlock, 30_000);
+			}, 200);
+		});
+
+		/**
+		 * Measures how many 'M' chars fit in terminal's width, minus 2.
+		 */
+		function recalculateCharsPerLine() {
+			const testString = 'M'.repeat(100);
+			measureContainer.textContent = testString;
+
+			const testWidth = measureContainer.getBoundingClientRect().width;
+			const containerWidth = terminalEl.clientWidth;
+
+			if (testWidth > 0) {
+				const averageCharWidth = testWidth / 100;
+				let newChars = Math.floor(containerWidth / averageCharWidth);
+				if (newChars > 2) {
+					// We do a little offset so it doesn't wrap early
+					newChars -= 2;
+				}
+				if (newChars > 0) {
+					CHARS_PER_LINE = newChars;
+				}
+			}
+			statusEl.textContent = `CHARS_PER_LINE = ${CHARS_PER_LINE}`;
+		}
+
+		/**
+		 * Polls /api/latestblockhex to see if there's a new block
+		 */
+		async function fetchNewBlock() {
+			try {
+				const response = await fetch('/api/latestblockhex');
+				if (!response.ok) {
+					throw new Error(`HTTP error ${response.status}`);
+				}
+				const data = await response.json();
+
+				if (!data.blockHash || !data.blockHex) {
+					statusEl.textContent = 'No block data yet...';
+					return;
+				}
+				data.blockHash = data.blockHash.trim() + ':' + data.minuteIndex;
+				const alreadyQueued = blockQueue.some(b => b.hash === data.blockHash);
+				if (data.blockHash !== currentBlockHash && !alreadyQueued) {
+					blockQueue.push({
+						hash: data.blockHash,
+						hex: data.blockHex
+					});
+					statusEl.textContent = `New block queued: ${data.blockHash}`;
+
+					// if not typing, start
+					if (!isTyping) {
+						typeNextBlock();
+					}
+				} else {
+					statusEl.textContent = 'No new block found this poll...';
+				}
+			} catch (err) {
+				console.error('Error fetching block:', err);
+				statusEl.textContent = `Error fetching block: ${err.message}`;
+			}
+		}
+
+		/**
+		 * Types out the next block in the queue chunk-by-chunk,
+		 * filling lines as we go.
+		 */
+		async function typeNextBlock() {
+			if (blockQueue.length === 0) {
+				isTyping = false;
+				return;
+			}
+
+			isTyping = true;
+			const { hash, hex } = blockQueue.shift();
+			currentBlockHash = hash;
+			statusEl.textContent = `Typing block: ${hash}`;
+
+			const totalChars = hex.length;
+			const msPerChar = TYPING_DURATION_MS / totalChars;
+
+			// We'll keep a buffer for the current line
+			let lineBuffer = '';
+
+			// We'll also keep a reference to the "current line" element in the DOM
+			let currentLineEl = createLineElement();
+
+			let i = 0;
+			while (i < totalChars) {
+				// take next CHUNK_SIZE characters
+				const chunk = hex.slice(i, i + CHUNK_SIZE);
+				i += CHUNK_SIZE;
+
+				// add them to lineBuffer
+				lineBuffer += chunk;
+
+				// update the current line's text so we see partial line updates
+				currentLineEl.textContent = lineBuffer;
+
+				// if we exceed CHARS_PER_LINE, flush that line
+				while (lineBuffer.length >= CHARS_PER_LINE) {
+					const flushLine = lineBuffer.slice(0, CHARS_PER_LINE);
+					currentLineEl.textContent = flushLine;
+
+					// remove that from the buffer
+					lineBuffer = lineBuffer.slice(CHARS_PER_LINE);
+
+					// That line is now "final". Let's create a new line for further text
+					currentLineEl = createLineElement();
+					currentLineEl.textContent = lineBuffer; // show leftover so far
+				}
+
+				// scroll to bottom
+				scrollTerminalToBottom();
+
+				// wait for chunk-based typing delay
+				await sleep(msPerChar * CHUNK_SIZE);
+			}
+
+			// after finishing, if there's leftover text in lineBuffer, it stays in the last line
+			if (lineBuffer.length > 0) {
+				currentLineEl.textContent = lineBuffer;
+			}
+
+			statusEl.textContent = `Finished block: ${hash}`;
+			typeNextBlock(); // proceed to next block
+		}
+
+		/**
+		 * Creates a new .line element at the bottom, returns it
+		 */
+		function createLineElement() {
+			const lineEl = document.createElement('div');
+			lineEl.className = 'line';
+			lineEl.textContent = ''; // start empty
+			terminalEl.appendChild(lineEl);
+
+			// if we exceed max lines, remove from top
+			while (terminalEl.children.length > MAX_LINES) {
+				terminalEl.removeChild(terminalEl.firstChild);
+			}
+
+			return lineEl;
+		}
+
+		function scrollTerminalToBottom() {
+			terminalEl.scrollTop = terminalEl.scrollHeight;
+		}
+
+		function sleep(ms) {
+			return new Promise(resolve => setTimeout(resolve, ms));
+		}
+	</script>
+</body>
+
+</html>

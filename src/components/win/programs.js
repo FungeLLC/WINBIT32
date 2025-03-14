@@ -254,23 +254,24 @@ export const getPrograms = () => {
 										smHeight: 350,
 									},
 								},
-								// {
-								// 	progID: 1,
-								// 	title: "Exora Swap",
-								// 	icon: "🔢",
-								// 	progName: "exora.exe", // Added name for "File Manager"
-								// 	component: ExoraSwapComponent,
-								// 	defaultOpen: false,
-								// 	maximized: true,
-								// 	initialPosition: {
-								// 		x: "auto",
-								// 		y: 0,
-								// 		width: 850,
-								// 		height: 675,
-								// 		smHeight: 500,
-								// 		smWidth: 350,
-								// 	},
-								// },
+								{
+									progID: 1,
+									title: "Exora",
+									titleNote: "Early Preview",
+									icon: "🔢",
+									progName: "exora.exe", // Added name for "File Manager"
+									component: ExoraSwapComponent,
+									defaultOpen: false,
+									maximized: true,
+									initialPosition: {
+										x: "auto",
+										y: 0,
+										width: 850,
+										height: 675,
+										smHeight: 500,
+										smWidth: 350,
+									},
+								},
 								{
 									progID: 2,
 									title: "Send",
