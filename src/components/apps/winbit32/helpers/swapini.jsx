@@ -29,6 +29,10 @@ export const getTokenBalance = (token, wallets) => {
     return 0;
   }
 
+  if(!token.identifier){
+    token.identifier = token.chain + '.' + token.ticker;
+  }
+
   const balance = wallet?.balance?.find(
     b => b.isSynthetic !== true && (
       (b.chain + '.' + (b.ticker?.toUpperCase() ?? '') === token.identifier?.toUpperCase() ?? '') || 
@@ -37,7 +41,7 @@ export const getTokenBalance = (token, wallets) => {
       b => b.isSynthetic === true && (b.symbol?.toUpperCase() ?? '') === (token.identifier?.toUpperCase() ?? '')
     );
   if(!balance){
-    console.log('Token balance not found', wallet.balance, token);
+    console.log('Token balance not found', wallet.balance, token, wallet);
     return 0;
   }
 
@@ -265,7 +269,7 @@ export const COLUMN_MAPPING = {
       const gasAsset = getGasAsset({ chain: row.fromToken?.chain });
       if (!gasAsset) return row.route.gasFee;
 
-      return `${row.route.gasFee} ${gasAsset.symbol}`;
+      return `${row.route.gasFee} ${gasAsset.ticker}`;
     }
   },
   gasBalance: {
@@ -273,11 +277,11 @@ export const COLUMN_MAPPING = {
     editor: 'readonly',
     compact: true,
     format: (value, row) => {
-      if (!row?.fromToken) return '';
-      const gasAsset = getGasAsset({chain: row.fromToken.chain});
-      if (!gasAsset) return '0';
-      const gasBalance = getTokenBalance(gasAsset);
-      return formatBalance(row.gasBalance);
+      if (!row?.gasAsset?.balance) return '0';
+      // Use the current toToken for balance name
+      const balance = Number(row.gasAsset.balance.bigIntValue) / Number(row.gasAsset.balance.decimalMultiplier);
+      const usdValue = balance * (row.gasAsset.usdValue || 0);
+      return `${balance.toFixed(6)} ${row.gasAsset.symbol || row.gasAsset.ticker} (${usdValue.toFixed(2)} USD)`;
     }
   },
   streamingInterval: {
@@ -358,7 +362,10 @@ export const parseIniData = (
   setStreamingNumSwaps,
   wallets // <-- Add wallets if needed for balance
 ) => {
-  const lines = data.split('\n');
+
+  console.log("data", data);
+  //convert /r/n to \n
+  const lines = data.replace(/\r\n/g, '\n').split('\n');
   let slippageVal;
   lines.forEach((line) => {
     if (line.startsWith(';')) return;
@@ -366,7 +373,7 @@ export const parseIniData = (
     const [key, value] = line.split('=');
     switch (key.trim()) {
       case 'token_from':
-        const fromToken = tokens.find(token => 
+        const fromToken = tokens?.find(token => 
           token.identifier?.toLowerCase() === value.trim().toLowerCase()
         );
         if (fromToken) {
@@ -375,7 +382,7 @@ export const parseIniData = (
         }
         break;
       case 'token_to':
-        const toToken = tokens.find(token =>
+        const toToken = tokens?.find(token =>
           token.identifier.toLowerCase() === value.trim().toLowerCase()
         );
         if (toToken) {

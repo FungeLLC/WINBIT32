@@ -13,10 +13,19 @@ export default function useExoraActions({
 	tokens,
 	chainflipBroker,
 	onOpenWindow,
-	providers
+	providers,
+	refreshBalance,
+	walletsRef
 }) {
 	const handleQuote = useCallback(
 		async (row) => {
+			console.log("handleQuote", row);
+
+			//if row has tx data, return
+			if (row.txIds?.length > 0) {
+				return;
+			}
+
 			// Get fresh row data before starting quote
 			const currentRow = rows.find((r) => r.swapid === row.swapid);
 			if (!currentRow) return;
@@ -219,38 +228,10 @@ export default function useExoraActions({
 					currentRow.iniData || "",
 					currentRow.thorAffiliate || "be",
 					currentRow.mayaAffiliate || "be",
-					(affiliate) =>
-						setRows((current) =>
-							current.map((r) =>
-								r.swapid === currentRow.swapid
-									? { ...r, thorAffiliate: affiliate }
-									: r
-							)
-						),
-					(affiliate) =>
-						setRows((current) =>
-							current.map((r) =>
-								r.swapid === currentRow.swapid
-									? { ...r, mayaAffiliate: affiliate }
-									: r
-							)
-						),
-					(quoteData) =>
-						setRows((current) =>
-							current.map((r) =>
-								r.swapid === currentRow.swapid
-									? {
-											...r,
-											reportData: {
-												...r.reportData,
-												quotes: quoteData,
-												quoteTime: new Date().toISOString(),
-											},
-									  }
-									: r
-							)
-						),
-					...Object.values(streamingParams),
+					() => {},
+					() => {},
+					streamingParams.streamingNumSwaps || 0,
+					streamingParams.streamingInterval || 0,
 					providers
 				);
 			} catch (error) {
@@ -439,17 +420,17 @@ export default function useExoraActions({
 					true // doSwap = true to actually perform the swap
 				);
 				
-				// Final status update
-				setRows((current) => 
-					current.map((r) => r.swapid === currentRow.swapid 
-						? { 
-								...r, 
-								status: "Swap completed",
-								swapInProgress: false
-							} 
-						: r
-					)
-				);
+				// // Final status update
+				// setRows((current) => 
+				// 	current.map((r) => r.swapid === currentRow.swapid 
+				// 		? { 
+				// 				...r, 
+				// 				status: "Swap completed",
+				// 				swapInProgress: false
+				// 			} 
+				// 		: r
+				// 	)
+				// );
 				
 				// Offer to view transaction report
 				if (onOpenWindow && currentRow.reportData) {
@@ -484,7 +465,7 @@ export default function useExoraActions({
 	// Wrap the imported handleExecuteAll function
 	const executeAll = useCallback(
 		async (inOrder = false) => {
-			await handleExecuteAll(rows, setRows, skClient, handleExecute, onOpenWindow, inOrder);
+			await handleExecuteAll(rows, setRows, skClient, handleExecute, onOpenWindow, inOrder, refreshBalance, walletsRef);
 		},
 		[rows, setRows, skClient, handleExecute, onOpenWindow]
 	);

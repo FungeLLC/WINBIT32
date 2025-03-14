@@ -22,9 +22,9 @@ import useExoraColumns from './hooks/useExoraColumns';
 import useExoraActions from './hooks/useExoraActions';
 import { copyToCSV, generateIni, handleClipboardPaste} from './helpers/clipboard';
 import { saveToFile, loadFromFile, parseCsvRow  } from './helpers/fileOps';
-import { formatBalance, formatBalanceWithUSD, checkTxnStatus, getTxnDetails } from './helpers/transaction';
 import { initialRowState } from './helpers/constants';
 import { handleExecuteAll, optimizeForGas, hasRowTxData } from './hooks/handleExecuteAll';
+import { getTxnDetails } from './helpers/transaction';
 
 // Add this helper function near the top with other utility functions
 export const hasData = (row) => {
@@ -85,6 +85,47 @@ const rateLimiter = {
     this.lastCall = Date.now();
   }
 };
+
+// Add the missing safeStringify function
+function safeStringify(obj) {
+  return JSON.stringify(obj, (key, value) =>
+    typeof value === 'bigint' ? value.toString() : value
+  );
+}
+
+// Add the missing setRowItem function
+function setRowItem(row, field, value) {
+  if (!row) return;
+  row[field] = value;
+  return row;
+}
+
+// // Add the missing getTxnDetails function
+// const getTxnDetails = async ({ hash }) => {
+//   if (!hash) return null;
+  
+//   try {
+//     // Use SwapKitApi to get transaction details
+//     const api = new SwapKitApi();
+//     const response = await api.getTransactionStatus({ txHash: hash });
+    
+//     return {
+//       status: response.status || 'unknown',
+//       hash,
+//       done: ['completed', 'failed', 'rejected'].includes(response.status?.toLowerCase()),
+//       lastCheckTime: Date.now()
+//     };
+//   } catch (error) {
+//     console.error('Error getting transaction details:', error);
+//     return {
+//       status: 'unknown',
+//       hash,
+//       done: false,
+//       error: error.message,
+//       lastCheckTime: Date.now()
+//     };
+//   }
+// };
 
 // Move updateBalances function definition up here, before the component
 const updateBalances = async (row, walletBalances, wallets) => {
@@ -150,13 +191,23 @@ const Exora = ({ providerKey, windowId, programData, onOpenWindow, onMenuAction,
     const currentRow = rows.find(r => r.swapid === row.swapid);
     if (!currentRow) return;
 
+    // Skip if already selected with same field
+    if (selectedRow?.swapid === currentRow.swapid && 
+        selectedCell === field && 
+        safeStringify(selectedRow) === safeStringify(currentRow)) {
+      return;
+    }
+
     // Keep previous cell if reselecting same row and no new field specified
     const newField = field || (selectedRow?.swapid === row.swapid ? selectedCell : null);
 
-    setSelectedRow(currentRow);
-    setSelectedCell(newField);
+    // Update refs first to prevent loops
     selectedRowRef.current = currentRow;
     rowsRef.current = rows;
+    
+    // Then update state
+    setSelectedRow(currentRow);
+    setSelectedCell(newField);
 
     // Only update edit value if we have a field
     if (newField) {
@@ -166,6 +217,11 @@ const Exora = ({ providerKey, windowId, programData, onOpenWindow, onMenuAction,
       setEditValue(value);
     }
   }, [rows, selectedRow, selectedCell, setSelectedRow, setSelectedCell, setEditValue]);
+
+
+  useEffect(() => {
+    console.log("providers in exora", providers);
+  }, [providers]);
 
   // Get array of editable fields in display order
   const getEditableFields = () => {
@@ -370,7 +426,7 @@ const Exora = ({ providerKey, windowId, programData, onOpenWindow, onMenuAction,
   // Fix the row selection effect to prevent loops
   useEffect(() => {
     if (!selectedRow) return; // Add early return
-
+    console.log("selectedRow", selectedRow);
     setRows(current => {
       // Only update if needed
       if (!current.some(r => r.selected !== (r.swapid === selectedRow.swapid))) {
@@ -386,7 +442,12 @@ const Exora = ({ providerKey, windowId, programData, onOpenWindow, onMenuAction,
   // Fix the data refresh effect
   useEffect(() => {
     if (!selectedRow?.swapid) return; // Add early return
-
+    
+    // Skip updates if the row has an updateKey, indicating it was just updated
+    if (selectedRow.updateKey) {
+      return;
+    }
+    
     setRows(current => {
       const index = current.findIndex(r => r.swapid === selectedRow.swapid);
       if (index === -1) return current;
@@ -397,6 +458,7 @@ const Exora = ({ providerKey, windowId, programData, onOpenWindow, onMenuAction,
         ...selectedRow
       };
 
+      // Use deep comparison to prevent unnecessary updates
       if (safeStringify(current[index]) === safeStringify(updatedRow)) {
         return current;
       }
@@ -412,7 +474,7 @@ const Exora = ({ providerKey, windowId, programData, onOpenWindow, onMenuAction,
     if (!selectedRow?.swapid || selectedRow.isEmpty) return;
 
     // Initial balance update
-    updateBalances(selectedRow, wallets, skClient).then(updatedRow => {
+    updateBalances(selectedRow, walletBalances, wallets).then(updatedRow => {
       if (updatedRow && safeStringify(updatedRow) !== safeStringify(selectedRow)) {
         setSelectedRow(prev => ({
           ...prev,
@@ -430,7 +492,7 @@ const Exora = ({ providerKey, windowId, programData, onOpenWindow, onMenuAction,
     });
 
     const updateInterval = setInterval(() => {
-      updateBalances(selectedRow, wallets, skClient).then(updatedRow => {
+      updateBalances(selectedRow, walletBalances, wallets).then(updatedRow => {
         if (updatedRow && safeStringify(updatedRow) !== safeStringify(selectedRow)) {
           setSelectedRow(prev => ({
             ...prev,
@@ -449,108 +511,224 @@ const Exora = ({ providerKey, windowId, programData, onOpenWindow, onMenuAction,
     }, 15000);
 
     return () => clearInterval(updateInterval);
-  }, [selectedRow?.swapid]); // Only depend on the row ID
+  }, [selectedRow?.swapid, walletBalances, wallets]); // Only depend on the row ID and wallet data
 
-  const handleEdit = useCallback((row) => {
-    // Always get latest row data from rows state
-    const currentRow = rows.find(r => r.swapid === row.swapid) || row;
+  // Add back the balance update queue effect
+  useEffect(() => {
+    if (!selectedRow?.swapid || selectedRow.isEmpty) return;
 
-    if (!currentRow.swapid) {
-      currentRow.swapid = Date.now();
-    }
+    const rowId = selectedRow.swapid;
+    const lastUpdate = lastBalanceUpdate[rowId] || 0;
+    const now = Date.now();
 
-    onOpenWindow('exchange.exe', {
-      initialIniData: currentRow.iniData,
-      editMode: true,
-      onSave: (newIniData, otherData) => {
-        setRows(current => {
-          const currentIndex = current.findIndex(r => r.swapid === row.swapid);
-          if (currentIndex === -1) return current;
-
-          const updatedRows = [...current];
-
-          // Update current row
-          updatedRows[currentIndex] = {
-            ...row,
-            iniData: newIniData,
-            route: otherData.route,
-            ...updateRowFromIni(newIniData),
-            expectedOut: otherData.expectedOut,
-            status: 'Ready',
-            swapid: row.swapid
-          };
-
-          return updatedRows;
-        });
-        // Re-select row after save
-        setTimeout(() => ensureSelection(currentRow, selectedCell), 0);
-        return true;
-      }
-    });
-  }, [rows, onOpenWindow, ensureSelection, selectedCell]);
-
-  // Handle click on any row
-  const handleRowClick = (row) => {
-    console.log('handleRowClick', row);
-    if (!row.isEmpty) {
-      //select the row
-      handleRowSelect(row);
+    // Only update if more than 30 seconds have passed
+    if (now - lastUpdate < 30000) {
       return;
     }
 
-    const newRow = {
-      ...initialRowState,
-      swapid: Date.now()
+    // Add to queue if not already there
+    if (!balanceUpdateQueue.has(rowId)) {
+      setBalanceUpdateQueue(prev => new Set(prev).add(rowId));
+    }
+
+    // Process queue with delay between requests
+    const processQueue = async () => {
+      if (balanceUpdateQueue.size === 0) return;
+
+      const [firstId] = balanceUpdateQueue;
+      if (firstId === rowId) {
+        try {
+          // Make sure we're using the correct parameters for updateBalances
+          const updatedRow = await updateBalances(selectedRow, walletBalances, wallets);
+          if (updatedRow && safeStringify(updatedRow) !== safeStringify(selectedRow)) {
+            setSelectedRow(prev => ({
+              ...prev,
+              fromToken: {
+                ...prev.fromToken,
+                balance: updatedRow.fromToken?.balance
+              },
+              toToken: {
+                ...prev.toToken,
+                balance: updatedRow.toToken?.balance
+              },
+              gasBalance: updatedRow.gasBalance
+            }));
+          }
+          // Update last balance time
+          setLastBalanceUpdate(prev => ({ ...prev, [rowId]: now }));
+        } catch (error) {
+          console.error('Balance update failed:', error);
+        }
+
+        // Remove from queue after processing
+        setBalanceUpdateQueue(prev => {
+          const newQueue = new Set(prev);
+          newQueue.delete(rowId);
+          return newQueue;
+        });
+      }
     };
 
-    setRows(current => {
-      // Find first empty row index
-      const emptyIndex = current.findIndex(r => r.isEmpty);
-      if (emptyIndex === -1) return [...current, newRow];
+    processQueue();
 
-      // Insert before empty rows
-      return [
-        ...current.slice(0, emptyIndex),
-        newRow,
-        ...current.slice(emptyIndex)
-      ];
-    });
-
-    handleEdit(newRow);
-  };
-
-  useEffect(() => {
-    if (selectedRow?.swapid && selectedCell) {
-      //remove border from all cells
-      document.querySelectorAll('.cell_inner').forEach((cell) => {
-        cell.style.border = 'none';
+    // Clear this row from queue on unmount
+    return () => {
+      setBalanceUpdateQueue(prev => {
+        const newQueue = new Set(prev);
+        newQueue.delete(rowId);
+        return newQueue;
       });
-      console.log('selectedCell', selectedCell);
+    };
+  }, [selectedRow?.swapid, wallets, walletBalances, lastBalanceUpdate, balanceUpdateQueue]);
 
-      //add border to selected cell
-      try {
-        const cells = document.querySelectorAll('.cell_' + selectedCell + '_' + selectedRow.swapid);
-        if (cells.length > 0) {
-          cells.forEach((cell) => {
-            cell.style.border = '1px solid #000';
-          });
+  // Update useEffect to keep ref in sync
+  useEffect(() => {
+    selectedRowRef.current = selectedRow;
+  }, [selectedRow]);
+
+  // 1. Update the rows ref sync effect to prevent loops
+  useEffect(() => {
+    // Only update rowsRef if actual content changed
+    if (rowsRef.current !== rows) {
+      rowsRef.current = rows;
+    }
+
+    //check for unique swapids
+    const swapids = new Set();
+    let needsUpdate = false;
+    const newRows = rows.map((row) => {
+      if (swapids.has(row.swapid)) {
+        needsUpdate = true;
+        return { ...row, swapid: Date.now() + Math.random() };
+      }
+      swapids.add(row.swapid);
+      return row;
+    });
+    
+    if (!isEditing) {
+      // console.log("newRows", newRows);
+
+      if (needsUpdate) {
+        console.log("needsUpdate", needsUpdate);
+        setRows(newRows);
+      }
+    
+      //update the selected row if we are not in edit mode
+      const selectedRowIndex = newRows.findIndex(r => r.swapid === selectedRow?.swapid);
+      if (selectedRowIndex !== -1) {  
+        const newSelectedRow = newRows[selectedRowIndex];
+
+        if (newSelectedRow.txIds?.length > 0) {
+          return;
         }
-      } catch (error) {
-        console.error('Error setting cell border:', error);
+
+        
+        // Skip update if the row has an updateKey, indicating it was just updated from exchange.exe
+        if (newSelectedRow.updateKey) {
+          // Clear the updateKey after a short delay to allow other effects to complete
+          setTimeout(() => {
+            setRows(current => 
+              current.map(r => 
+                r.swapid === newSelectedRow.swapid 
+                  ? { ...r, updateKey: undefined } 
+                  : r
+              )
+            );
+          }, 500);
+          return;
+        }
+        
+
+        //set Quote Needed if needed
+        if(newSelectedRow !== selectedRow || newSelectedRow.status === 'Quote Required'){
+          setSelectedRow(newSelectedRow);
+          selectedRowRef.current = newSelectedRow;
+          if(newSelectedRow.status === 'Quote Required'){
+            setTimeout(() => {
+              handleQuote(newSelectedRow);
+            }, 100);
+          }
+          //set the status to quote required
+          setSelectedRow(prev => ({
+            ...prev,
+            status: 'Quote in progress'
+          }));
+        }
+      }else{
+        console.log("not found selected row");
       }
     }
-  }, [selectedRow?.swapid, selectedCell]);
+  
+  }, [rows, isEditing]);
 
-  useEffect(() => { 
-    walletsRef.current = wallets;
-  }, [wallets]);
 
+  // 3. Fix the selected row ref sync 
+  useEffect(() => {
+    // Only update if content actually changed
+    if (selectedRowRef.current?.swapid !== selectedRow?.swapid) {
+      selectedRowRef.current = selectedRow;
+    }
+  }, [selectedRow?.swapid]);
+
+  // Add the missing getSelectedValue function
+  const getSelectedValue = () => {
+    if (!selectedRow || !selectedCell) return '';
+    const mapping = COLUMN_MAPPING[selectedCell];
+    return mapping?.format
+      ? mapping.format(selectedRow[selectedCell], selectedRow)
+      : selectedRow[selectedCell];
+  };
+
+  // Add back the missing menu definition
+  const menu = useMemo(
+    () => [
+      {
+        label: "File",
+        submenu: [
+          { label: "Open...", action: "openCSV" },
+          { label: "Save As CSV", action: "saveCSV" },
+          { label: "Save As Excel", action: "saveXLSX" },
+        ],
+      },
+      {
+        label: "Edit",
+        submenu: [
+          { label: "Copy Cell", action: "copyCell" },
+          { label: "Copy Row", action: "copyRow" },
+          { label: "Copy All", action: "copyAll" },
+          { label: "Paste", action: "paste" },
+          { label: "Delete Row", action: "deleteRow" },
+        ],
+      },
+      {
+        label: "Columns",
+        submenu: [
+          { label: "Compact", action: "compact" },
+          { label: "Show All", action: "showAll" },
+        ],
+      },
+      {
+        label: "Help",
+        submenu: [
+          { label: "Bug Report", action: "bugReport" },
+        ],
+      },
+    ],
+    []
+  );
+
+
+  // Add back the missing handleMenuAction function
   const handleMenuAction = useCallback((action) => {
     console.log('handleMenuAction', action, rows);
     // Use the latest selected row from state
     const currentRow = selectedRowRef.current || selectedRow;
     const currentRows = rowsRef.current || rows;
     switch (action) {
+      case 'bugReport': {
+        window.open('https://github.com/FungeLLC/WINBIT32/issues/new', '_blank');
+        break;
+      }
       case 'copyCell': {
         if (selectedCell && currentRow) {
           const cellValue = getSelectedValue();
@@ -578,12 +756,31 @@ const Exora = ({ providerKey, windowId, programData, onOpenWindow, onMenuAction,
 
           if (clipboardText.includes('=') && clipboardText.includes('\n')) {
             // Handle INI format
-            newRows = [{ 
+            const newRow = { 
               ...initialRowState,
               iniData: clipboardText,
               swapid: Date.now(),
               isEmpty: false
-            }];
+            };
+
+            //parse the ini data
+            const parsedRows = parseIniData(clipboardText, 
+            (value) => setRowItem(newRow, 'fromToken', value),
+            (value) => setRowItem(newRow, 'toToken', value),
+            (value) => setRowItem(newRow, 'amountIn', value),
+            (value) => setRowItem(newRow, 'destinationAddress', value),
+            (value) => setRowItem(newRow, 'feeOption', value),
+            (value) => setRowItem(newRow, 'slippage', value), 
+            (value) => setRowItem(newRow, 'selectedRoute', value),
+            (value) => setRowItem(newRow, 'routes', value),
+            () => {},
+            tokens,
+            (value) => setRowItem(newRow, 'manualStreamingSet', value),
+            (value) => setRowItem(newRow, 'streamingInterval', value),
+            (value) => setRowItem(newRow, 'streamingNumSwaps', value),
+            wallets);
+            newRows = [newRow];
+
           } else if (clipboardText.includes(',')) {
             // Parse CSV format - returns array of rows
             newRows = parseCsvRow(clipboardText, COLUMN_MAPPING, tokens).map(rowData => ({
@@ -593,7 +790,7 @@ const Exora = ({ providerKey, windowId, programData, onOpenWindow, onMenuAction,
               isEmpty: false
             }));
           }
-
+          console.log("newRows", newRows);
           if (newRows.length > 0) {
             // If selected row is empty, replace it, otherwise add new rows
             if (selectedRow?.isEmpty) {
@@ -684,230 +881,9 @@ const Exora = ({ providerKey, windowId, programData, onOpenWindow, onMenuAction,
       default:
         break;
     }
-  }, [rows, selectedRow, selectedCell, setCompactView, setRows, ensureSelection, tokens]);
+  }, [rows, selectedRow, selectedCell, setCompactView, setRows, ensureSelection, tokens, wallets]);
 
-
-  const menu = useMemo(
-    () => [
-      {
-        label: "File",
-        submenu: [
-          { label: "Open...", action: "openCSV" },
-          { label: "Save As CSV", action: "saveCSV" },
-          { label: "Save As Excel", action: "saveXLSX" },
-        ],
-      },
-      {
-        label: "Edit",
-        submenu: [
-          { label: "Copy Cell", action: "copyCell" },
-          { label: "Copy Row", action: "copyRow" },
-          { label: "Copy All", action: "copyAll" },
-          { label: "Paste", action: "paste" },
-          { label: "Delete Row", action: "deleteRow" },
-        ],
-      },
-      {
-        label: "Columns",
-        submenu: [
-          { label: "Compact", action: "compact" },
-          { label: "Show All", action: "showAll" },
-        ],
-      },
-    ],
-    []
-  );
-
-
-  // Replace updateBalances function
-  const updateBalances = async (row) => {
-    if (!row || !row.fromToken || !row.toToken || row.isEmpty) return null;
-
-    const fromChain = row.fromToken.chain;
-    const toChain = row.toToken.chain;
-    const gasAsset = getGasAsset({ chain: fromChain });
-
-    // Use cached balances if available and fresh
-    const fromWalletData = walletBalances[fromChain];
-    const toWalletData = walletBalances[toChain];
-    const now = Date.now();
-
-    if (!fromWalletData || !toWalletData ||
-      now - fromWalletData.timestamp > 60000 ||
-      now - toWalletData.timestamp > 60000) {
-      return row;
-    }
-
-    // Find the right wallet and balance for each token
-    const fromBalance = fromWalletData.balance.find(b =>
-      (b.isSynthetic !== true &&
-        (b.chain + '.' + b.ticker.toUpperCase() === row.fromToken.identifier.toUpperCase() ||
-          b.chain + '.' + b.symbol.toUpperCase() === row.fromToken.identifier.toUpperCase())) ||
-      (b.isSynthetic === true && b.symbol.toUpperCase() === row.fromToken.identifier.toUpperCase())
-    );
-
-    const toBalance = toWalletData.balance.find(b =>
-      (b.isSynthetic !== true &&
-        (b.chain + '.' + b.ticker.toUpperCase() === row.toToken.identifier.toUpperCase() ||
-          b.chain + '.' + b.symbol.toUpperCase() === row.toToken.identifier.toUpperCase())) ||
-      (b.isSynthetic === true && b.symbol.toUpperCase() === row.toToken.identifier.toUpperCase())
-    );
-
-    // Apply cached balances and prices
-    const newRow = {
-      ...row,
-      fromToken: {
-        ...row.fromToken,
-        balance: fromBalance || null,
-        usdValue: fromWalletData.prices[row.fromToken.identifier.toLowerCase()] || 0
-      },
-      toToken: {
-        ...row.toToken,
-        balance: toBalance || null,
-        usdValue: toWalletData.prices[row.toToken.identifier.toLowerCase()] || 0
-      }
-    };
-
-    // Add gas balance if needed
-    if (gasAsset) {
-      const gasId = `${gasAsset.chain}.${gasAsset.symbol}`.toLowerCase();
-      const gasBalance = fromWalletData.balance.find(b =>
-        b.chain === gasAsset.chain &&
-        (b.symbol === gasAsset.symbol || b.ticker === gasAsset.symbol)
-      );
-      newRow.gasBalance = gasBalance || null;
-      newRow.gasToken = {
-        ...gasAsset,
-        balance: gasBalance,
-        usdValue: fromWalletData.prices[gasId] || 0
-      };
-    }
-
-    return newRow;
-  };
-
-  // Move cell update logic to component level
-const handleCellUpdate = useCallback(async (row, field, value) => {
-  // Get latest row data and update token balances immediately if token changed
-  const currentRow = rows.find(r => r.swapid === row.swapid);
-  if (!currentRow) return;
-
-  // Special handling for token selection
-  if (field === 'fromToken' || field === 'toToken') {
-    // Update the token first
-    setRows(current => 
-      current.map(r => r.swapid === currentRow.swapid 
-        ? { ...r, [field]: value }
-        : r
-      )
-    );
-    
-
-
-
-    // Then immediately fetch updated balances
-    const updatedBalances = await updateBalances(
-      { ...currentRow, [field]: value },
-      walletBalances,
-      refreshBalance
-    );
-    
-    if (updatedBalances) {
-      setRows(current =>
-        current.map(r => r.swapid === currentRow.swapid
-          ? {
-              ...r,
-              fromToken: field === 'fromToken' ? {
-                ...value,
-                balance: updatedBalances.fromToken?.balance,
-                usdValue: updatedBalances.fromToken?.usdValue
-              } : r.fromToken,
-              toToken: field === 'toToken' ? {
-                ...value,
-                balance: updatedBalances.toToken?.balance,
-                usdValue: updatedBalances.toToken?.usdValue
-              } : r.toToken,
-              gasBalance: updatedBalances.gasBalance
-            }
-          : r
-        )
-      );
-    }
-  }
-
-  const mapping = COLUMN_MAPPING[field];
-
-  if(!mapping) {
-    console.error('Invalid field:', field);
-    return;
-  }
-
-  let newValue = value;
-
-  // Handle token selection differently  
-  if (mapping?.editor === 'tokenSelect') {
-    newValue = value; // Keep the full token object
-  } else if (mapping?.parse) {
-    newValue = mapping.parse(value);
-  }
-
-  // Handle streaming parameters
-  const isStreamingUpdate = field === 'streamingInterval' || field === 'streamingNumSwaps';
-  const clearRouteData = isQuoteField(field) && !isStreamingUpdate;
-
-  // Update INI data
-  const newIniData = updateIniField(currentRow.iniData, mapping.iniField, 
-    mapping.editor === 'tokenSelect' ? value?.identifier : value);
-
-  // Update row state with new value
-  setRows(current => 
-    current.map(r => 
-      r.swapid === currentRow.swapid 
-        ? {
-            ...r,
-            [field]: newValue,
-            iniData: newIniData,
-            // Clear route data only if it's a non-streaming quote field
-            ...(clearRouteData ? {
-              routes: [],
-              route: null,
-              selectedRoute: null,
-              expectedOut: '',
-              gasFee: '',
-              status: 'Quote Required'
-            } : isStreamingUpdate ? {
-              // For streaming updates, preserve route but mark for requote
-              status: 'Quote Required - Streaming Parameters Changed',
-              route: r.route ? {
-                ...r.route,
-                streamingSwap: true,
-                streamingBlocks: field === 'streamingInterval' ? newValue : r.streamingInterval,
-                streamingQuantity: field === 'streamingNumSwaps' ? newValue : r.streamingNumSwaps
-              } : null
-            } : {})
-          }
-        : r
-    )
-  );
-
-  // Get updated row
-  const updatedRow = {...currentRow, [field]: newValue};
-
-  // Auto-quote if required fields are present
-  if ((isQuoteField(field) || isStreamingUpdate) && canGetQuote(updatedRow)) {
-    // Small delay to allow UI to update
-    setTimeout(() => {
-      const freshRow = rows.find(r => r.swapid === updatedRow.swapid);
-      if (freshRow) {
-        handleQuote(freshRow);
-      }
-    }, 100);
-  }
-}, [rows, handleQuote, updateBalances]); // Add other deps as needed
-
-
-
-  // Memoize handleCellSelect
+  // Add the missing handleCellSelect function
   const handleCellSelect = useCallback((row, field) => {
     if (!row?.swapid || !field) return;
 
@@ -923,612 +899,7 @@ const handleCellUpdate = useCallback(async (row, field, value) => {
     ensureSelection(currentRow, field);
   }, [rows, selectedRow?.swapid, selectedCell, ensureSelection]);
 
-  // Get selected cell value for edit box
-  const getSelectedValue = () => {
-    if (!selectedRow || !selectedCell) return '';
-    const mapping = COLUMN_MAPPING[selectedCell];
-    return mapping?.format
-      ? mapping.format(selectedRow[selectedCell], selectedRow)
-      : selectedRow[selectedCell];
-  };
 
-  const handleAddRow = () => {
-    const newRow = {
-      ...initialRowState,
-      swapid: Date.now()
-    };
-    setRows(current => [...current, newRow]);
-    handleEdit(newRow);
-  };
-
-  // Replace handleTokenSelect and related functions
-  const handleTokenSelect = useCallback((token, currentTokenSetter, closeTokenDialog) => {
-    const wallets = walletsRef.current;
-    if (currentTokenSetter) {
-      // First update the token with its balance
-      const tokenWithBalance = {
-        ...token,
-        balance: getTokenBalance(token, wallets)
-      };
-      
-      currentTokenSetter(tokenWithBalance);
-      
-      const currentRow = rows.find(r => r.swapid === selectedRow?.swapid);
-      if (currentRow) {
-        const updatedField = selectedCell;
-        
-        // Update the row with the new token and its balance
-        setRows(prev => prev.map(r => 
-          r.swapid === currentRow.swapid 
-            ? {
-                ...r,
-                [updatedField]: tokenWithBalance,
-                ...(updatedField === 'toToken' && {
-                  destinationAddress: chooseWalletForToken(token, wallets)?.address || r.destinationAddress,
-                  iniData: updateIniField(r.iniData, 'destination', 
-                    chooseWalletForToken(token, wallets)?.address || r.destinationAddress)
-                }),
-                updateKey: Date.now(),
-                gasBalance: updatedField === 'fromToken' ? 
-                  getTokenBalance(getGasAsset({ chain: token.chain }), wallets) : 
-                  r.gasBalance
-              }
-            : r
-        ));
-
-        // If we have enough info for a quote, trigger it
-        if (canGetQuote({
-          ...currentRow,
-          [updatedField]: tokenWithBalance
-        })) {
-          setTimeout(() => handleQuote({
-            ...currentRow,
-            [updatedField]: tokenWithBalance
-          }), 100);
-        }
-      }
-    }
-    closeTokenDialog();
-  }, [selectedRow?.swapid, selectedCell, rows, setRows, wallets, handleQuote]);
-
-  const handleNumberInput = (row, field, value) => {
-    const mapping = COLUMN_MAPPING[field];
-    if (mapping.range) {
-      const [min, max] = mapping.range;
-      value = Math.max(min, Math.min(max, parseFloat(value)));
-    }
-    updateCell(row, field, value);
-  };
-
-  const handleAddressInput = (row, field, value) => {
-    const mapping = COLUMN_MAPPING[field];
-    if (mapping.validate && !mapping.validate(value)) {
-      return false;
-    }
-    updateCell(row, field, value);
-  };
-
-  const handleSelect = (row, field, value) => {
-    const mapping = COLUMN_MAPPING[field];
-    if (!mapping.options.includes(value)) {
-      return false;
-    }
-    updateCell(row, field, value);
-  };
-
-  // Memoize updateCell
-  const updateCell = useCallback((row, field, value) => {
-    console.log('updateCell', row, field, value);
-
-    const mapping = COLUMN_MAPPING[field];
-
-    // Handle token selection differently  
-    if (mapping.editor === 'tokenSelect') {
-      value = value; // Keep the full token object
-    } else if (mapping.parse) {
-      value = mapping.parse(value);
-    }
-
-    // Update INI data
-    let newIniData = row.iniData;
-    if (mapping.iniField) {
-      const lines = newIniData.split('\n');
-      const lineIndex = lines.findIndex(l => l.startsWith(`${mapping.iniField}=`));
-      // For tokens, use the identifier
-      const newValue = mapping.editor === 'tokenSelect' ? value?.identifier : value;
-      const newLine = `${mapping.iniField}=${newValue}`;
-
-      if (lineIndex >= 0) {
-        lines[lineIndex] = newLine;
-      } else {
-        lines.push(newLine);
-      }
-      newIniData = lines.join('\n');
-    }
-
-    // Check if this is editing the last non-empty row
-    const isLastRow = (currentRows) => {
-      const nonEmptyRows = currentRows.filter(r => !r.isEmpty);
-      return row.swapid === nonEmptyRows[nonEmptyRows.length - 1]?.swapid;
-    };
-
-    setRows(current => {
-      const index = current.findIndex(r => r.swapid === row.swapid);
-      if (index === -1) return current;
-
-      const updatedRows = [...current];
-      const updatedRow = {
-        ...row,
-        [field]: value,
-        iniData: newIniData
-      };
-
-      updatedRows[index] = updatedRow;
-
-      // If this edit creates data in the last row, add a new spare row
-      if (isLastRow(current) && !hasData(row) && hasData(updatedRow)) {
-        updatedRows.push({
-          ...initialRowState,
-          swapid: Date.now(),
-          isEmpty: false
-        });
-      }
-
-      // Ensure selection stays on updated row
-      setTimeout(() => ensureSelection(updatedRow, field), 0);
-
-      return updatedRows;
-    });
-  }, [setRows, ensureSelection]); // Only depends on setRows
-
-  // Update handleRowSelect to properly sync refs and state
-  const handleRowSelect = useCallback((row) => {
-    if (!row?.swapid) return;
-
-    // Get latest row data
-    const currentRow = rows.find(r => r.swapid === row.swapid);
-    if (!currentRow) return;
-
-    // Keep existing field selection when reselecting same row
-    const field = selectedRow?.swapid === currentRow.swapid ? selectedCell : null;
-
-    ensureSelection(currentRow, field);
-  }, [rows, selectedRow, selectedCell, ensureSelection]);
-
-  const openTokenDialog = (setter) => {
-    setCurrentTokenSetter(() => setter);
-    setIsTokenDialogOpen(true);
-    setIsTokenDialogOpen(true);
-  };
-
-  const closeTokenDialog = useCallback(() => {
-    setIsTokenDialogOpen(false);
-
-    setCurrentTokenSetter(null);
-  }, []);
-
-
-  // Update tokenChooserDialog usage
-  const tokenChooserDialog = useMemo(() => {
-    if (isTokenDialogOpen) {
-      return <TokenChooserDialog
-        isOpen={isTokenDialogOpen}
-        onClose={closeTokenDialog}
-        onConfirm={token => handleTokenSelect(token, currentTokenSetter, closeTokenDialog)}
-        wallets={wallets}
-        otherToken={selectedCell === 'toToken' ? selectedRow?.fromToken : selectedRow?.toToken}
-        windowId={windowId + '_token_chooser'}
-        inputRef={inputRef}
-      />;
-    }
-    return null;
-  }, [isTokenDialogOpen, wallets, selectedRow, selectedCell, currentTokenSetter]);
-
-  // Memoize startEditing
-  const startEditing = useCallback((row, field, force = false) => {
-    if (!row?.swapid || !field) return;
-
-    // Get latest row data first
-    const currentRow = rows.find(r => r.swapid === row.swapid);
-    if (!currentRow) return;
-
-    const mapping = COLUMN_MAPPING[field];
-
-    if (mapping.editor === 'tokenSelect') {
-      setIsTokenDialogOpen(true);
-      setSelectedRow(currentRow);
-      setSelectedCell(field);
-      return;
-    }
-
-    const value = mapping.format
-      ? mapping.format(currentRow[field], currentRow)
-      : currentRow[field];
-
-    setEditValue(value || '');
-    setSelectedRow(currentRow);
-    setSelectedCell(field);
-
-    if (force) {
-      setIsEditing(true);
-      setTimeout(() => editInputRef.current?.focus(), 0);
-    }
-  }, [rows, setEditValue, setSelectedRow, setSelectedCell, setIsEditing, setIsTokenDialogOpen]);
-
-const commitEdit = () => {
-  if (!isEditing || !selectedRow || !selectedCell) return;
-  
-  // Special handling for routes (no column mapping exists)
-  if (selectedCell === 'routes') {
-    handleCellUpdate(selectedRow, selectedCell, editValue);
-    editBlur();
-    return;
-  }
-  
-  const mapping = COLUMN_MAPPING[selectedCell];
-  if (!mapping) {
-    console.warn(`No mapping found for field: ${selectedCell}`);
-    return;
-  }
-  
-  if (mapping.editor === 'number') {
-    const num = parseFloat(editValue);
-    if (isNaN(num)) {
-      console.warn('Invalid number input');
-      return;
-    }
-    if (mapping.range) {
-      const [min, max] = mapping.range;
-      if (num < min || num > max) {
-        console.warn(`Number out of range [${min}, ${max}]`);
-        return;
-      }
-    }
-  }
-  handleCellUpdate(selectedRow, selectedCell, editValue);
-  editBlur();
-};
-
-  const cancelEdit = () => {
-    setIsEditing(false);
-    editBlur();
-  };
-
-  const editBlur = () => {
-    if (isEditing) {
-      setIsEditing(false);
-
-      editInputRef.current.blur();
-      try{
-        //focus back on the cell
-        document.querySelector('.cell_' + selectedCell + '_' + selectedRow.swapid).focus();
-      } catch (error) {
-        console.error('Error focusing cell:', error);
-      }
-    }
-  };
-
-  const handleEditKeyDown = (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault(); // Add this
-      commitEdit();
-    } else if (e.key === 'Escape') {
-      e.preventDefault(); // Add this
-      cancelEdit();
-    }
-  };
-
-  const handleEditChange = (e) => {
-    const newValue = e.target.value;
-    setEditValue(newValue);
-  
-    // Only handle routes selection immediately
-    if (selectedCell === 'routes') {
-      handleCellUpdate(selectedRow, selectedCell, newValue);
-      // Ensure the select element reflects the current value
-      if (editInputRef.current) {
-        editInputRef.current.value = newValue;
-      }
-      return;
-    }
-  
-    // For other fields, just update the edit value
-    // Validation will happen on commitEdit
-    const mapping = COLUMN_MAPPING[selectedCell];
-    if (!mapping) {
-      console.warn(`No mapping found for field: ${selectedCell}`);
-      return;
-    }
-  };
-
-  useEffect(() => {
-    if (selectedRow && selectedCell && selectedCell === 'routes') {
-      setEditValue(selectedRow.selectedRoute || 'optimal');
-
-    } else {
-      setEditValue(getSelectedValue());
-    }
-  }, [selectedRow, selectedCell]);
-
-  // Add effect to update destination address when toToken changes
-  useEffect(() => {
-    const updateDestination = (row) => {
-      if (!row?.toToken || !wallets || row.isEmpty) return;
-
-      const wallet = chooseWalletForToken(row.toToken, wallets);
-      if (wallet) {
-        setRows(current =>
-          current.map(r =>
-            r.swapid === row.swapid
-              ? {
-                ...r,
-                destinationAddress: wallet.address,
-                iniData: updateIniField(r.iniData, 'destination', wallet.address)
-              }
-              : r
-          )
-        );
-      }
-    };
-
-
-    // Update destination for selected row when toToken changes
-    if (selectedRow) {
-      updateDestination(selectedRow);
-    }
-  }, [selectedRow?.toToken, wallets]);
-
-  // Add updateBalances function near the top with other function declarations
-  // Add this rate limiting helper near other utility functions
-  const rateLimiter = {
-    lastCall: 0,
-    minDelay: 2000, // 2 seconds between calls
-    async waitForNext() {
-      const now = Date.now();
-      const timeSinceLastCall = now - this.lastCall;
-      if (timeSinceLastCall < this.minDelay) {
-        await new Promise(resolve => setTimeout(resolve, this.minDelay - timeSinceLastCall));
-      }
-      this.lastCall = Date.now();
-    }
-  };
-
-  // ...rest of existing code...
-
-  function safeStringify(obj) {
-    return JSON.stringify(obj, (key, value) =>
-      typeof value === 'bigint' ? value.toString() : value
-    );
-  }
-
-  // Replace the balance update interval effect with this optimized version
-  useEffect(() => {
-    if (!selectedRow?.swapid || selectedRow.isEmpty) return;
-
-    const refreshWalletBalances = async () => {
-      const now = Date.now();
-      const activeChains = getActiveChains(rows);
-
-      // Collect chains that need updating
-      const chainsToUpdate = activeChains.filter(chain => {
-        const lastUpdate = lastWalletUpdate[chain] || 0;
-        return now - lastUpdate > 60000; // 1 minute
-      });
-
-      if (chainsToUpdate.length === 0) return;
-
-      // Get prices for all tokens at once
-      const allTokens = chainsToUpdate.flatMap(chain => {
-        const chainTokens = [];
-        // Add native token
-        const gasAsset = getGasAsset({ chain });
-        if (gasAsset) {
-          chainTokens.push(`${gasAsset.chain}.${gasAsset.symbol}`);
-        }
-        // Add tokens from rows
-        rows.forEach(row => {
-          if (row.isEmpty) return;
-          if (row.fromToken?.chain === chain) chainTokens.push(row.fromToken.identifier);
-          if (row.toToken?.chain === chain) chainTokens.push(row.toToken.identifier);
-        });
-        return chainTokens;
-      });
-
-      // Fetch all prices in one call
-      await rateLimiter.waitForNext();
-      const tokenPrices = await fetchMultipleTokenPrices([...new Set(allTokens)]);
-      if (!tokenPrices) {
-        console.log('failed to get prices');
-        return;
-      }
-      
-      try{
-
-        const priceMap = tokenPrices.reduce((acc, item) => {
-          acc[item.identifier.toLowerCase()] = item.price_usd;
-          return acc;
-        }, {});
-
-        // Update balances for each chain using refreshBalance
-        for (const chain of chainsToUpdate) {
-          await rateLimiter.waitForNext();
-          await refreshBalance(chain);
-
-          setWalletBalances(prev => ({
-            ...prev,
-            [chain]: {
-              balance: wallets.find(w => w.chain === chain)?.balance || [],
-              prices: priceMap,
-              timestamp: now
-            }
-          }));
-
-          setLastWalletUpdate(prev => ({
-            ...prev,
-            [chain]: now
-          }));
-        }
-      } catch (error) {
-        console.error('Failed to update wallet balances:', error);
-      }
-
-    };
-
-    refreshWalletBalances();
-
-    const updateInterval = setInterval(refreshWalletBalances, 60000);
-    return () => clearInterval(updateInterval);
-  }, [selectedRow?.swapid, rows, refreshBalance, wallets]);
-
-  // Replace the balance update interval effect with this optimized version
-  useEffect(() => {
-    if (!selectedRow?.swapid || selectedRow.isEmpty) return;
-
-    const rowId = selectedRow.swapid;
-    const lastUpdate = lastBalanceUpdate[rowId] || 0;
-    const now = Date.now();
-
-    // Only update if more than 30 seconds have passed
-    if (now - lastUpdate < 30000) {
-      return;
-    }
-
-    // Add to queue if not already there
-    if (!balanceUpdateQueue.has(rowId)) {
-      setBalanceUpdateQueue(prev => new Set(prev).add(rowId));
-    }
-
-    // Process queue with delay between requests
-    const processQueue = async () => {
-      if (balanceUpdateQueue.size === 0) return;
-
-      const [firstId] = balanceUpdateQueue;
-      if (firstId === rowId) {
-        try {
-          const updatedRow = await updateBalances(selectedRow, wallets, skClient);
-          if (updatedRow && safeStringify(updatedRow) !== safeStringify(selectedRow)) {
-            setSelectedRow(prev => ({
-              ...prev,
-              fromToken: {
-                ...prev.fromToken,
-                balance: updatedRow.fromToken?.balance
-              },
-              toToken: {
-                ...prev.toToken,
-                balance: updatedRow.toToken?.balance
-              },
-              gasBalance: updatedRow.gasBalance
-            }));
-          }
-          // Update last balance time
-          setLastBalanceUpdate(prev => ({ ...prev, [rowId]: now }));
-        } catch (error) {
-          console.error('Balance update failed:', error);
-        }
-
-        // Remove from queue after processing
-        setBalanceUpdateQueue(prev => {
-          const newQueue = new Set(prev);
-          newQueue.delete(rowId);
-          return newQueue;
-        });
-      }
-    };
-
-    processQueue();
-
-    // Clear this row from queue on unmount
-    return () => {
-      setBalanceUpdateQueue(prev => {
-        const newQueue = new Set(prev);
-        newQueue.delete(rowId);
-        return newQueue;
-      });
-    };
-  }, [selectedRow?.swapid, wallets]);
-
-  // Update useEffect to keep ref in sync
-  useEffect(() => {
-    selectedRowRef.current = selectedRow;
-  }, [selectedRow]);
-
-  // 1. Update the rows ref sync effect to prevent loops
-  useEffect(() => {
-    // Only update rowsRef if actual content changed
-    if (rowsRef.current !== rows) {
-      rowsRef.current = rows;
-    }
-
-    //check for unique swapids
-    const swapids = new Set();
-    let needsUpdate = false;
-    const newRows = rows.map((row) => {
-      if (swapids.has(row.swapid)) {
-        needsUpdate = true;
-        return { ...row, swapid: Date.now() + Math.random() };
-      }
-      swapids.add(row.swapid);
-      return row;
-    });
-
-    if (needsUpdate) {
-      setRows(newRows);
-    }
-
-  }, [rows]);
-
-  // 2. Update the menu action binding to use stable reference
-  useEffect(() => {
-    const menuHandler = handleMenuActionRef.current;
-    if (onMenuAction && menu) {
-      onMenuAction(menu, windowA, (...args) => menuHandler(...args));
-    }
-  }, [onMenuAction, windowA, menu]); // Remove handleMenuActionRef from deps
-
-  // 3. Fix the selected row ref sync 
-  useEffect(() => {
-    // Only update if content actually changed
-    if (selectedRowRef.current?.swapid !== selectedRow?.swapid) {
-      selectedRowRef.current = selectedRow;
-    }
-  }, [selectedRow?.swapid]);
-
-  // 4. Update the duplicate swapid check to prevent unnecessary updates
-  useEffect(() => {
-    //check for duplicate swapids and renumber if so
-    const swapids = new Set();
-    let needsUpdate = false;
-
-    const newRows = rows.map((row) => {
-      if (swapids.has(row.swapid)) {
-        needsUpdate = true;
-        return { ...row, swapid: Date.now() + Math.random() };
-      }
-      swapids.add(row.swapid);
-      return row;
-    });
-
-    if (needsUpdate) {
-      setRows(newRows);
-    }
-  }, [rows]); // Consider using rows.map(r => r.swapid).join(',') as dependency
-
-  const columns = useExoraColumns({
-    compactView,
-    COLUMN_MAPPING,
-    handleCellSelect,
-    startEditing,
-    selectedRow,
-    selectedCell,
-    getLetterForIndex,
-    setSelectedRow,
-    setSelectedCell,
-    setCurrentTokenSetter,
-    updateCell,
-    setIsTokenDialogOpen,
-    wallets, // Add wallets to props
-    formatTokenBalance, // Add helper function
-  });
 
   handleMenuActionRef.current = handleMenuAction;
 
@@ -1538,6 +909,16 @@ const commitEdit = () => {
       onMenuAction(menu, windowA, handleMenuActionRef.current);
     }
   }, [onMenuAction, menu, handleMenuActionRef]);
+
+  // 2. Update the menu action binding to use stable reference
+  useEffect(() => {
+    const menuHandler = handleMenuActionRef.current;
+    if (onMenuAction && menu) {
+      onMenuAction(menu, windowA, (...args) => menuHandler(...args));
+    }
+  }, [onMenuAction, windowA, menu]); // Remove handleMenuActionRef from deps
+
+
 
   const handleReset = useCallback(() => {
     // If a row is selected, only reset that row
@@ -1792,6 +1173,8 @@ const commitEdit = () => {
     handleQuote,
     handleExecute,
     handleExecuteAll,
+    handleOptimizeForGas
+
   } = useExoraActions({
     rows,
     setRows,
@@ -1800,9 +1183,14 @@ const commitEdit = () => {
     tokens,
     chainflipBroker,
     onOpenWindow,
-    startTrackingTransaction, // Add new tracking function
-    providers
+    providers,
+    refreshBalance,
+    walletsRef
   });
+
+  const handleHandleQuote = useCallback(() => {
+    handleQuote(selectedRowRef.current);
+  }, [handleQuote]);
 
   // Add a cleanup effect to clear all timers when unmounting
   useEffect(() => {
@@ -1849,6 +1237,477 @@ const commitEdit = () => {
     });
   }, [rows, setRows, startTrackingTransaction]);
 
+
+  // Add the missing startEditing function
+  const startEditing = useCallback((row, field, force = false) => {
+    if (!row?.swapid || !field) return;
+
+    // Get latest row data first
+    const currentRow = rows.find(r => r.swapid === row.swapid);
+    if (!currentRow) return;
+
+    const mapping = COLUMN_MAPPING[field];
+
+    if (mapping?.editor === 'tokenSelect') {
+      setIsTokenDialogOpen(true);
+      setSelectedRow(currentRow);
+      setSelectedCell(field);
+      return;
+    }
+
+    const value = mapping?.format
+      ? mapping.format(currentRow[field], currentRow)
+      : currentRow[field];
+
+    setEditValue(value || '');
+    setSelectedRow(currentRow);
+    setSelectedCell(field);
+
+    if (force) {
+      setIsEditing(true);
+      setTimeout(() => editInputRef.current?.focus(), 0);
+    }
+  }, [rows, setEditValue, setSelectedRow, setSelectedCell, setIsEditing, setIsTokenDialogOpen]);
+
+  // Add the missing handleCellUpdate function
+  const handleCellUpdate = useCallback(async (row, field, value) => {
+    // Get latest row data and update token balances immediately if token changed
+    const currentRow = rows.find(r => r.swapid === row.swapid);
+    if (!currentRow) return;
+  
+
+    // Special handling for token selection
+    if (field === 'fromToken' || field === 'toToken') {
+      // Update the token first
+      setRows(current => 
+        current.map(r => r.swapid === currentRow.swapid 
+          ? { ...r, [field]: value }
+          : r
+        )
+      );
+      
+      // Then immediately fetch updated balances
+      const updatedBalances = await updateBalances(
+        { ...currentRow, [field]: value },
+        walletBalances,
+        wallets
+      );
+      
+      if (updatedBalances) {
+        setRows(current =>
+          current.map(r => r.swapid === currentRow.swapid
+            ? {
+                ...r,
+                fromToken: field === 'fromToken' ? {
+                  ...value,
+                  balance: updatedBalances.fromToken?.balance,
+                  usdValue: updatedBalances.fromToken?.usdValue
+                } : r.fromToken,
+                toToken: field === 'toToken' ? {
+                  ...value,
+                  balance: updatedBalances.toToken?.balance,
+                  usdValue: updatedBalances.toToken?.usdValue
+                } : r.toToken,
+                gasBalance: updatedBalances.gasBalance
+              }
+            : r
+          )
+        );
+      }
+    }
+  
+    const mapping = COLUMN_MAPPING[field];
+  
+    if(!mapping) {
+      console.error('Invalid field:', field);
+      return;
+    }
+  
+    let newValue = typeof value === 'string' ? value.trim() : JSON.stringify(value);
+  
+    if (field === 'routes') {
+      console.log('routes', value);
+      field = 'route';
+      newValue = currentRow.routes?.find(r => r.providers.join(', ') == value);
+      if (!newValue) {
+        console.error('Invalid route:', value);
+        return;
+      }
+
+    }else{
+
+
+      // Handle token selection differently  
+      if (mapping?.editor === 'tokenSelect') {
+        newValue = value; // Keep the full token object
+      } else if (mapping?.parse) {
+        newValue = mapping.parse(value);
+      }
+    }
+  
+    // Handle streaming parameters
+    const isStreamingUpdate = field === 'streamingInterval' || field === 'streamingNumSwaps';
+    const clearRouteData = isQuoteField(field) && !isStreamingUpdate;
+  
+    // Update INI data
+    const newIniData = updateIniField(currentRow.iniData, mapping.iniField, 
+      mapping.editor === 'tokenSelect' ? value?.identifier : value);
+  
+    const updatedRow = {
+      ...currentRow,
+      [field]: newValue,
+      iniData: newIniData
+    };
+
+    if(field === 'route') {
+      updatedRow.selectedRoute = value;
+    }
+
+    console.log('updatedRow', updatedRow, clearRouteData, isQuoteField(field), isStreamingUpdate, canGetQuote(updatedRow), newValue);
+  
+    // Update row state with new value
+    setRows(current => 
+      current.map(r => 
+        r.swapid === currentRow.swapid 
+          ? {
+              ...r,
+              [field]: newValue,
+              iniData: newIniData,
+              selectedRoute: field === 'route' ? value : r.selectedRoute,
+              // Clear route data only if it's a non-streaming quote field
+              ...(clearRouteData ? {
+                routes: [],
+                route: null,
+                selectedRoute: null,
+                expectedOut: '',
+                gasFee: '',
+                status:
+                 (isQuoteField(field) || isStreamingUpdate) && canGetQuote(updatedRow) ? 'Quote Required' : r.status,
+                // For streaming updates, preserve route but mark for requote
+                route: r.route && isStreamingUpdate ? {
+                  ...r.route,
+                  streamingSwap: true,
+                  streamingBlocks: field === 'streamingInterval' ? newValue : r.streamingInterval,
+                  streamingQuantity: field === 'streamingNumSwaps' ? newValue : r.streamingNumSwaps
+                } : null
+              } : {})
+            }
+          : r
+      )
+    );
+  }, [rows, updateBalances, walletBalances, wallets]); // Add other deps as needed
+
+  // Add the missing updateCell function
+  const updateCell = useCallback((row, field, value) => {
+    // Always get the latest row data from state
+    const currentRow = rows.find(r => r.swapid === row.swapid);
+    if (!currentRow) return;
+    
+    // Use handleCellUpdate to perform the actual update
+    handleCellUpdate(currentRow, field, value);
+  }, [rows, handleCellUpdate]);
+
+  // Add the missing handleEdit function
+  const handleEdit = useCallback((row) => {
+    // Always get latest row data from rows state
+    const currentRow = rows.find(r => r.swapid === row.swapid) || row;
+
+    if (!currentRow.swapid) {
+      currentRow.swapid = Date.now();
+    }
+
+    // Store the current swapid to prevent re-selection loop
+    const editingRowId = currentRow.swapid;
+    
+    // Set a flag to indicate we're in an edit operation
+    const isEditOperation = true;
+
+    onOpenWindow('exchange.exe', {
+      initialIniData: currentRow.iniData,
+      editMode: true,
+      onSave: (newIniData, otherData) => {
+        // Use a direct update approach to avoid triggering selection effects
+        setRows(current => {
+          const currentIndex = current.findIndex(r => r.swapid === editingRowId);
+          if (currentIndex === -1) return current;
+
+          const updatedRows = [...current];
+          
+          // Create the updated row with all the new data
+          const updatedRow = {
+            ...current[currentIndex], // Start with current row to preserve any fields not in the ini
+            iniData: newIniData,
+            route: otherData.route,
+            ...updateRowFromIni(newIniData),
+            expectedOut: otherData.expectedOut,
+            status: 'Ready',
+            swapid: editingRowId, // Ensure we keep the same ID
+            updateKey: Date.now() // Add a key to force refresh
+          };
+
+          updatedRows[currentIndex] = updatedRow;
+          
+          // Update the selected row directly to avoid the selection effect
+          // This needs to be done after the rows are updated
+          setTimeout(() => {
+            // Get the fresh row from state to ensure we have the latest
+            const freshRow = updatedRows[currentIndex];
+            if (freshRow) {
+              // Update refs directly to avoid triggering effects
+              selectedRowRef.current = freshRow;
+              
+              // Update state in a way that won't trigger the selection effect
+              setSelectedRow(freshRow);
+            }
+          }, 0);
+          
+          return updatedRows;
+        });
+        
+        return true;
+      }
+    });
+  }, [rows, onOpenWindow, setSelectedRow, updateRowFromIni]);
+
+  // Add the missing handleEditChange and handleEditKeyDown functions
+  const handleEditChange = (e) => {
+    const newValue = e.target.value;
+    setEditValue(newValue);
+  
+    // Only handle routes selection immediately
+    if (selectedCell === 'routes') {
+      handleCellUpdate(selectedRow, selectedCell, newValue);
+      // Ensure the select element reflects the current value
+      if (editInputRef.current) {
+        editInputRef.current.value = newValue;
+      }
+      return;
+    }
+  
+    // For other fields, just update the edit value
+    // Validation will happen on commitEdit
+    const mapping = COLUMN_MAPPING[selectedCell];
+    if (!mapping) {
+      console.warn(`No mapping found for field: ${selectedCell}`);
+      return;
+    }
+  };
+
+  const handleEditKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commitEdit();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelEdit();
+    }
+  };
+
+  // Add the missing commitEdit, cancelEdit, and editBlur functions
+  const commitEdit = () => {
+    if (!isEditing || !selectedRow || !selectedCell) return;
+    
+    // Special handling for routes (no column mapping exists)
+    if (selectedCell === 'routes') {
+      handleCellUpdate(selectedRow, selectedCell, editValue);
+      editBlur();
+      return;
+    }
+    
+    const mapping = COLUMN_MAPPING[selectedCell];
+    if (!mapping) {
+      console.warn(`No mapping found for field: ${selectedCell}`);
+      return;
+    }
+    
+    if (mapping.editor === 'number') {
+      const num = parseFloat(editValue);
+      if (isNaN(num)) {
+        console.warn('Invalid number input');
+        return;
+      }
+      if (mapping.range) {
+        const [min, max] = mapping.range;
+        if (num < min || num > max) {
+          console.warn(`Number out of range [${min}, ${max}]`);
+          return;
+        }
+      }
+    }
+    handleCellUpdate(selectedRow, selectedCell, editValue);
+    editBlur();
+  };
+
+  const cancelEdit = () => {
+    setIsEditing(false);
+    editBlur();
+  };
+
+  const editBlur = () => {
+    if (isEditing) {
+      setIsEditing(false);
+
+      editInputRef.current.blur();
+      try{
+        //focus back on the cell
+        document.querySelector('.cell_' + selectedCell + '_' + selectedRow.swapid).focus();
+      } catch (error) {
+        console.error('Error focusing cell:', error);
+      }
+    }
+  };
+
+  // Add the missing handleAddRow function
+  const handleAddRow = useCallback(() => {
+    const newRow = {
+      ...initialRowState,
+      swapid: Date.now()
+    };
+    setRows(current => [...current, newRow]);
+    handleEdit(newRow);
+  }, [setRows, handleEdit]);
+
+  // Update handleRowSelect to properly sync refs and state
+  const handleRowSelect = useCallback((row) => {
+    if (!row?.swapid) return;
+
+    // Get latest row data
+    const currentRow = rows.find(r => r.swapid === row.swapid);
+    if (!currentRow) return;
+
+    // Keep existing field selection when reselecting same row
+    const field = selectedRow?.swapid === currentRow.swapid ? selectedCell : null;
+
+    ensureSelection(currentRow, field);
+  }, [rows, selectedRow, selectedCell, ensureSelection]);
+
+
+  // Add the missing handleRowClick function
+  const handleRowClick = useCallback((row) => {
+    console.log('handleRowClick', row);
+    if (!row.isEmpty) {
+      //select the row
+      handleRowSelect(row);
+      return;
+    }
+
+    const newRow = {
+      ...initialRowState,
+      swapid: Date.now()
+    };
+
+    setRows(current => {
+      // Find first empty row index
+      const emptyIndex = current.findIndex(r => r.isEmpty);
+      if (emptyIndex === -1) return [...current, newRow];
+
+      // Insert before empty rows
+      return [
+        ...current.slice(0, emptyIndex),
+        newRow,
+        ...current.slice(emptyIndex)
+      ];
+    });
+
+    handleEdit(newRow);
+  }, [setRows, handleEdit, handleRowSelect]);
+
+
+  // Add the missing tokenChooserDialog and related functions
+  const openTokenDialog = (setter) => {
+    setCurrentTokenSetter(() => setter);
+    setIsTokenDialogOpen(true);
+  };
+
+  const closeTokenDialog = useCallback(() => {
+    setIsTokenDialogOpen(false);
+    setCurrentTokenSetter(null);
+  }, [setIsTokenDialogOpen, setCurrentTokenSetter]);
+
+  // Add the missing handleTokenSelect function
+  const handleTokenSelect = useCallback((token, currentTokenSetter, closeTokenDialog) => {
+    if (currentTokenSetter) {
+      // First update the token with its balance
+      const tokenWithBalance = {
+        ...token,
+        balance: getTokenBalance(token, wallets)
+      };
+      
+      currentTokenSetter(tokenWithBalance);
+      
+      const currentRow = rows.find(r => r.swapid === selectedRow?.swapid);
+      if (currentRow) {
+        const updatedField = selectedCell;
+        
+        // Update the row with the new token and its balance
+        setRows(prev => prev.map(r => 
+          r.swapid === currentRow.swapid 
+            ? {
+                ...r,
+                [updatedField]: tokenWithBalance,
+                ...(updatedField === 'toToken' && {
+                  destinationAddress: chooseWalletForToken(token, wallets)?.address || r.destinationAddress,
+                  iniData: updateIniField(r.iniData, 'destination', 
+                    chooseWalletForToken(token, wallets)?.address || r.destinationAddress)
+                }),
+                updateKey: Date.now(),
+                gasBalance: updatedField === 'fromToken' ? 
+                  getTokenBalance(getGasAsset({ chain: token.chain }), wallets) : 
+                  r.gasBalance
+              }
+            : r
+        ));
+
+        // If we have enough info for a quote, trigger it
+        if (canGetQuote({
+          ...currentRow,
+          [updatedField]: tokenWithBalance
+        })) {
+          setTimeout(() => handleQuote({
+            ...currentRow,
+            [updatedField]: tokenWithBalance
+          }), 100);
+        }
+      }
+    }
+    closeTokenDialog();
+  }, [selectedRow?.swapid, selectedCell, rows, setRows, wallets, handleQuote]);
+
+  // Update tokenChooserDialog usage
+  const tokenChooserDialog = useMemo(() => {
+    if (isTokenDialogOpen) {
+      return <TokenChooserDialog
+        isOpen={isTokenDialogOpen}
+        onClose={closeTokenDialog}
+        onConfirm={token => handleTokenSelect(token, currentTokenSetter, closeTokenDialog)}
+        wallets={wallets}
+        otherToken={selectedCell === 'toToken' ? selectedRow?.fromToken : selectedRow?.toToken}
+        windowId={windowId + '_token_chooser'}
+        inputRef={inputRef}
+      />;
+    }
+    return null;
+  }, [isTokenDialogOpen, wallets, selectedRow, selectedCell, currentTokenSetter, closeTokenDialog, handleTokenSelect, windowId, inputRef]);
+
+
+
+  const columns = useExoraColumns({
+    compactView,
+    COLUMN_MAPPING,
+    handleCellSelect,
+    startEditing,
+    selectedRow,
+    selectedCell,
+    getLetterForIndex,
+    setSelectedRow,
+    setSelectedCell,
+    setCurrentTokenSetter,
+    updateCell,
+    setIsTokenDialogOpen,
+    wallets, // Add wallets to props
+    formatTokenBalance, // Add helper function
+  });
+
   // console.log('rows', rows);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }} className="exora">
@@ -1865,16 +1724,11 @@ const commitEdit = () => {
           title="Execute swaps in order, waiting for balance when needed. Rows with existing transactions will be skipped." 
           icon="▶️"
         >Go in turn</ActionButton>
-        <ActionButton 
-          visible={true} 
-          onClick={handleOptimizeForGas} 
-          title="Optimize swap chains to ensure enough gas for all transactions" 
-          icon="⛽"
-        >Gas Smart</ActionButton>
+
         <ActionButton visible={true} onClick={handleReset} title="Clear transaction details to enable re-execution" icon="🔄">Reset</ActionButton>
         <ActionButton visible={true} onClick={handleAddRow} icon="➕">New</ActionButton>
         <ActionButton visible={!!selectedRow} onClick={handleRefreshBalances} title="Refresh balances for the selected row" icon="💰">Refresh</ActionButton>
-        <ActionButton visible={!!selectedRow} onClick={clearSelection} title="Clear current row selection" icon="❌">Clear Selection</ActionButton>
+        <ActionButton visible={!!selectedRow} onClick={clearSelection} title="Clear current row selection" icon="❌">Clear</ActionButton>
       </div>
 
       <EditBar style={{ flexShrink: 0 }}>
@@ -1887,7 +1741,7 @@ const commitEdit = () => {
         >
           {selectedRow?.status === 'Running' ? 'Running...' : 'Go One'}
         </ActionButton>
-        <ActionButton visible={!!selectedRow} onClick={() => handleQuote(selectedRowRef.current)} icon="💬">
+        <ActionButton visible={!!selectedRow} onClick={() => handleHandleQuote()} icon="💬">
           Quote
         </ActionButton>
         <ActionButton visible={!!selectedRow} onClick={() => handleEdit(selectedRow)} icon="✏️">

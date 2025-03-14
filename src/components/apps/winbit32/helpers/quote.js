@@ -144,6 +144,7 @@ export async function getQuoteFromDoritoKit(quoteParams) {
 	//quoteParams.sellAmount = Number(quoteParams.sellAmount);
 	quoteParams.slippage = Number(quoteParams.slippage);
 	quoteParams.includeTx = true;
+	quoteParams.assetValue = null;
 
 	//filter out ONEINCH from quoteParams.providers
 	// quoteParams.providers = quoteParams.providers.filter(provider => provider !== "ONEINCH");
@@ -151,7 +152,11 @@ export async function getQuoteFromDoritoKit(quoteParams) {
 	console.log('quoteParams for DoritoKit', quoteParams);
 
 
-	return dKitApi.getSwapQuote(quoteParams);
+	const res = await dKitApi.getSwapQuote(quoteParams);
+
+	console.log('res', res);
+
+	return res;
 
 
 	// const response = await fetch(`${apiUrl}quote`, {

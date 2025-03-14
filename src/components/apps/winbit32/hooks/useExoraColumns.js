@@ -1,6 +1,7 @@
 import { useMemo, useCallback } from "react";
 import { RowNumber, HeaderCell, LetterCell } from "../styles/Exora";
 import { FaEllipsisH } from "react-icons/fa";
+import { getGasAsset } from "@doritokit/sdk";
 
 export default function useExoraColumns({
 	compactView,
@@ -86,6 +87,7 @@ export default function useExoraColumns({
 			width: "130px",
 			cell: (row) => {
 				// Display progress bar and transaction links
+
 				return (
 					<div
 						style={{
@@ -96,7 +98,7 @@ export default function useExoraColumns({
 							gap: "2px"
 						}}
 					>
-						{row.swapInProgress && row.progress !== undefined && (
+						{row.progress !== undefined && row.progress < 100  && (
 							<div style={{ 
 								width: "100%",
 								height: "10px",
@@ -223,7 +225,9 @@ export default function useExoraColumns({
 								return formatTokenBalance(row.toToken, wallets);
 							}
 							if (field === 'gasBalance') {
-								return formatTokenBalance(row.gasAsset, wallets);
+								const gasAsset = getGasAsset({ chain: row?.fromToken?.chain });
+								// console.log('gasAsset', gasAsset, row?.fromToken?.chain, row);
+								return formatTokenBalance(gasAsset, wallets);
 							}
 
 							return (

@@ -15,14 +15,15 @@ import {
 	Chain, 
 	ChainId,
 	SubstrateChains,
-  EVMChains, 
-  UTXOChains,
+	EVMChains, 
+	UTXOChains,
 	CosmosChains 
 } from "@swapkit/sdk";
 import { walletconnectWallet } from "@swapkit/wallet-wc";
 import { secureKeystoreWallet } from '../wallets/secureKeystore/index.ts';
 import { Keyring } from "@polkadot/api";
 import { ChainflipPlugin } from "../plugins/chainflip/plugin.ts";
+//import { ChainflipPlugin } from "@doritokit/plugin-chainflip";
 import { ThorchainPlugin, MayachainPlugin } from "@swapkit/plugin-thorchain"; 
 import { ctrlWallet, CTRL_SUPPORTED_CHAINS } from "../wallets/wallet-ctrl";
 import {
@@ -35,7 +36,7 @@ import { alchemyApi } from "./covalentApi.ts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QRCodeSVG } from "qrcode.react";
 import { createKeyring } from "@swapkit/toolbox-substrate";
-
+import { JupiterPlugin } from "../plugins/jupiter.ts";
 
 
 // Import the new service files
@@ -191,13 +192,14 @@ const reducer = (state, action, tokensLoadedRef) => {
 				wallets: { ...state.wallets, [action.key]: [] },
 			};
 		case "UPDATE_WALLET_BALANCE":
+
 			return {
 				...state,
 				wallets: {
 					...state.wallets,
 					[action.key]: state.wallets[action.key].map(w => 
 						w.chain === action.chain 
-							? { ...w, balance: action.balance }
+							? { ...w, balance: action.balance, timestamp: action.timestamp }
 							: w
 					)
 				}
@@ -943,11 +945,11 @@ export const SKClientProviderManager = ({ children }) => {
 		},
 		updateWalletBalance: (key, chain, balance) => {
 			console.log(`Updating balance for chain ${chain} in key ${key}:`, balance);
-			dispatch({ type: "UPDATE_WALLET_BALANCE", key, chain, balance });
+			dispatch({ type: "UPDATE_WALLET_BALANCE", key, chain, balance, timestamp: Date.now() });
 		},
 		refreshBalance: async (key, chain) => {
 			console.log(`Refreshing balance for chain ${chain} in key ${key}`);
-		const client = state.clients[key];
+			const client = state.clients[key];
 			if (!client) {
 				console.error(`No client available for key ${key}`);
 				return;
@@ -960,8 +962,12 @@ export const SKClientProviderManager = ({ children }) => {
 			}
 			
 			try {
-				const balance = await wallet.getBalance();
-				dispatch({ type: "UPDATE_WALLET_BALANCE", key, chain, balance });
+				let balance = wallet.balance;
+				if(!balance || !wallet.timestamp || Date.now() - wallet.timestamp > 1000 * 60 * 5){
+					//only update if last update was more than 5 minutes ago
+					balance = await wallet.getBalance(wallet.address);
+				}
+				dispatch({ type: "UPDATE_WALLET_BALANCE", key, chain, balance, timestamp: Date.now() });
 				return balance;
 		} catch (error) {
 				console.error(`Error refreshing balance for chain ${chain} in key ${key}:`, error);
@@ -1178,7 +1184,7 @@ export const useWindowSKClient = (key) => {
 					});
 					phrase = key[1];
 
-					console.log("Connecting with private key", keyType, phrase, chainsToConnect);
+					console.log("Connecting with private key", keyType, chainsToConnect);
 				}
 
 				// Connect wallet

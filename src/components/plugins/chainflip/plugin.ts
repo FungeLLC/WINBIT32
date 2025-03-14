@@ -13,6 +13,7 @@ import { assetTickerToChainflipAsset, chainToChainflipChain } from "./broker";
 import type { RequestSwapDepositAddressParams } from "./types";
 import { min } from "lodash";
 import { format } from "mathjs";
+import { ChainflipPlugin as DoritokitChainflipPlugin } from "@doritokit/plugin-chainflip";
 
 type SupportedChain = keyof (EVMWallets & SubstrateWallets & UTXOWallets & SolanaWallets);
 
@@ -182,7 +183,21 @@ function plugin({
   chainflipBrokerUrl?: string;
   chainflipBrokerConfig?: { chainflipBrokerUrl: string; useChainflipSDKBroker?: boolean };
 }>) {
-  async function swap(swapParams: RequestSwapDepositAddressParams) {
+
+  const doritokitChainflipPlugin = new DoritokitChainflipPlugin.chainflip.plugin({
+    getWallet,
+    config: { chainflipBrokerUrl: legacyChainflipBrokerUrl, chainflipBrokerConfig },
+  });
+
+  async function swap(swapParams: RequestSwapDepositAddressParams, dexAggregatorPlugin?: {
+    plugin: (params: SwapKitPluginParams<any>) => any;
+    config?: any;
+  }) {
+    return doritokitChainflipPlugin.swap(swapParams, dexAggregatorPlugin);
+  }
+
+
+  async function winbit32Swap(swapParams: RequestSwapDepositAddressParams) {
     const { chainflipBrokerUrl, useChainflipSDKBroker } = chainflipBrokerConfig || {};
 
     const brokerUrl = chainflipBrokerUrl || legacyChainflipBrokerUrl;

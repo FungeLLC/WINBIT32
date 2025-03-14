@@ -11,7 +11,7 @@ import { ctrlWallet, CTRL_SUPPORTED_CHAINS } from "../components/wallets/wallet-
 import { phantomWallet, PHANTOM_SUPPORTED_CHAINS } from "../components/wallets/wallet-phantom/index.ts";
 import { ChainflipPlugin } from "../components/plugins/chainflip/plugin.ts";
 import { ThorchainPlugin, MayachainPlugin } from "@doritokit/plugin-thorchain";
-import { JupiterPlugin } from "@doritokit/plugin-jupiter";
+import { JupiterPlugin } from "../components/plugins/jupiter.ts";
 import { EVMPlugin } from "@doritokit/plugin-evm";
 
 /**

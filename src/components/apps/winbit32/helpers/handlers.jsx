@@ -1,11 +1,9 @@
-import { saveAs } from "file-saver";
-import { amountInBigNumber, getAssetValue, getQuoteFromSwapKit, getQuoteFromDoritoKit } from "./quote";
-import { AssetValue, RequestClient, SwapKitNumber } from "@swapkit/helpers";
-import { FeeOption, SwapKitApi } from "@swapkit/sdk";
-import { ChainIdToChain } from "@swapkit/sdk";
+import {  getAssetValue} from "./quote";
+
+import { ChainToChainId, FeeOption } from "@doritokit/helpers";
+import { ChainIdToChain } from "@doritokit/helpers";
 import { getTxnDetails, getTxnDetailsV2, getTxnUrl } from "./transaction";
 import { getTokenForProvider } from './token';
-import { re } from "mathjs";
 
 export const chooseWalletForToken = (token, wallets) => {
 	if (!token) return null;
@@ -596,6 +594,9 @@ export const handleSwap = async (
 		return null;
 	});
 
+
+	console.log('swapResponse', swapResponse);
+	
 	if (!swapResponse) return;
 
 
@@ -680,7 +681,7 @@ export const handleSwap = async (
 	logObjectProperties(routeWithTransaction, "routeWithTransaction");
 
 	// Construct the txDetailsToSend object
-	const txDetailsToSend = {
+	const _txDetails = {
 		txn: {
 			hash: swapResponse,
 			quoteId: route.quoteId,
@@ -692,31 +693,27 @@ export const handleSwap = async (
 		},
 		route: routeWithTransaction,
 	};
-	logObjectProperties(txDetailsToSend, "txDetailsToSend");
+	logObjectProperties(_txDetails, "_txDetails");
 	setStatusText("Transaction Sent");
+
+	const txDetailsToSend = {
+
+			hash: (typeof swapResponse === "object") ? swapResponse.signature : swapResponse,
+			chainId: ChainToChainId[wallet.chain],
+			quoteId: route.quoteId,
+			route: routeWithTransaction,
+		
+	};
+
 
 	// Send the transaction details
 	const txDetails = await getTxnDetails(txDetailsToSend).catch((error) => {
-
-		const txDetailsV2 = getTxnDetailsV2(swapResponse, route.sourceAddress)
-			.then((txDetailsV2) => {
-				console.log("txDetailsV2", txDetailsV2);
-				if (txDetailsV2) {
-					txDetailsV2.done = false;
-					txDetailsV2.lastCheckTime = 1;
-
-					currentTxnStatus.current = txDetailsV2;
-					return txDetailsV2;
-				}
-			})
-			.catch((error) => {
-				console.log("error", error);
-				setStatusText("Cannot follow this tx. Check Navigator");
-				setSwapInProgress(false);
-				setShowProgress(false);
-				return { done: true, status: "pending", lastCheckTime: 1 };
-			});
-		return txDetailsV2;
+		console.log("error", error);
+		setStatusText("Cannot follow this tx. Check Navigator");
+		setSwapInProgress(false);
+		setShowProgress(false);
+		return { done: true, status: "pending", lastCheckTime: 1 };
+		
 	});
 	console.log("txDetails", txDetails);
 
@@ -738,7 +735,7 @@ export const handleSwap = async (
 	currentTxnStatus.current = txDetails;
 
 	setTxnStatus(txDetails);
-	setTxnHash([swapResponse, wallet.chainId]);
+	setTxnHash([txDetailsToSend.hash, wallet.chainId]);
 
 	setProgress(13);
 	// } catch (error) {

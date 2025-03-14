@@ -49,7 +49,7 @@ export const getQuotes = async (
 				? 16
 				: 32;
 		
-		let providerGroups = [["DORITO"]];//["MAYACHAIN", "MAYACHAIN_STREAMING", "THORCHAIN", "THORCHAIN_STREAMING"]];
+		let providerGroups = [["MAYACHAIN", "MAYACHAIN_STREAMING"], ["DORITO"]];//["MAYACHAIN", "MAYACHAIN_STREAMING", "THORCHAIN", "THORCHAIN_STREAMING"]];
 		//choose providers that are not THORCHAIN or MAYACHAIN or Chainflip
 		const doritoProviders = providers.map(p => p.name);
 		console.log("doritoProviders", doritoProviders);
@@ -70,7 +70,13 @@ export const getQuotes = async (
 						 swapFrom.identifier;
 		const buyAsset = //(swapTo.symbol)? swapTo.chain + "." + swapTo.symbol: 
 						swapTo.identifier;
+		const { assetValue } = await getAssetValue(swapFrom, amount);
 
+
+		//if numchunks is a biginteger, convert to number
+		numChunks = numChunks ? (typeof numChunks === 'bigint' ? Number(numChunks) : numChunks) : 1;
+		chunkIntervalBlocks = chunkIntervalBlocks ? (typeof chunkIntervalBlocks === 'bigint' ? Number(chunkIntervalBlocks) : chunkIntervalBlocks) : 20;
+		
 
 		const quotesParams = providerGroups.map((providerGroup, index) => {
 			const affiliate = affiliates[index];
@@ -78,6 +84,7 @@ export const getQuotes = async (
 				sellAsset: sellAsset,
 				buyAsset: buyAsset,
 				sellAmount: parseFloat(amount).toString(),
+				assetValue,
 				sourceAddress: chooseWalletForToken(swapFrom, wallets)?.address,
 				destinationAddress: thisDestinationAddress,
 				affiliateFee: basisPoints,
@@ -92,7 +99,6 @@ export const getQuotes = async (
 
 		console.log("AssetValue", swapFrom, amount);
 
-		const { assetValue } = await getAssetValue(swapFrom, amount);
 
 		const chainflipQuoteParams = {
 			sellAsset: swapFrom,
@@ -182,6 +188,8 @@ export const getQuotes = async (
 			}else if(quoteParams.providers.some(p => p === "DORITO")){
 				// Remove done providers from SwapKit providers
 				quoteParams.providers = doritoProviders.filter(p => !doneProviders.includes(p));
+				//filter out chainflip from providers
+				quoteParams.providers = quoteParams.providers.filter(p => p !== "CHAINFLIP");
 				return () => getQuoteFromDoritoKit(quoteParams);
 				
 			}
@@ -232,9 +240,8 @@ export const getQuotes = async (
 						}
 					});
 				}
-				if (response.status === "fulfilled") {
+				if (response.status === "fulfilled" && response.value?.routes) {
 					console.log("response", response);
-					
 					const routes =	processSwapKitRoutes(response.value, swapTo.decimals)
 					swapKitRoutes = swapKitRoutes.concat(routes);
 				}
@@ -416,6 +423,8 @@ export const getQuotes = async (
 			}
 			setQuoteStatus("Error getting quotes: " + error.message);
 		}
+	}else{
+		console.log("No quotes needed", oSwapFrom, swapTo, amount, destinationAddress, slippage, setStatusText, setQuoteStatus, setRoutes, chooseWalletForToken, tokens, setDestinationAddress, setSelectedRoute, wallets, selectedRoute, license, setReportData, iniData, thorAffiliate, mayaAffiliate, setThorAffiliate, setMayaAffiliate, numChunks, chunkIntervalBlocks, providers);
 	}
 };
 

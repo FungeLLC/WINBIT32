@@ -94,11 +94,16 @@ const WindowManager = ({ programs, windowName, windowId, windowA, handleOpenFunc
 		dispatch({ type: 'MINIMIZE_WINDOW', payload: window });
 	}, [dispatch]);
 
-	const bringToFront = useCallback((windowId) => {
+	const bringToFront = useCallback((windowId, hasChildrenWindows = false) => {
 		//console.log('bringToFront called with windowID:', windowId);
 		//check if the window is already at the front
+
+		console.log('bringToFront called with windowID:', windowId, hasChildrenWindows, downstreamHashes.current[windowId], getCurrentFrontWindow.id);
+
 		if (getCurrentFrontWindow.id === windowId) return;
-		downstreamHashes.current[windowId] = [];
+		if (!hasChildrenWindows){
+			downstreamHashes.current[windowId] = [];
+		}
 		dispatch(HandleFunctions.bringToFront(windowId));
 	}, [dispatch]);
 
@@ -273,52 +278,58 @@ const WindowManager = ({ programs, windowName, windowId, windowA, handleOpenFunc
 
 		//receive hash from child window, add to hashParts and send up
 	const _sendUpHash = (hash, _windowId) => {
+		const frontWindow = getCurrentFrontWindow;
 
-		if (windowA?.invisibleToHash) {
+		if (!frontWindow) {
+			// If no front window and we're invisible to hash, don't propagate
+			if (windowA?.invisibleToHash) {
+				return;
+			}
+			// If we have a windowA but no front window, send just our program name
+			if (windowA) {
+				sendUpHash([windowA.progName], windowId);
+			}
 			return;
 		}
 
-		//get our current front window and add to hash
-		const frontWindow = getCurrentFrontWindow;
-
-		if (frontWindow ){
-			//console.log('frontWindow:', frontWindow.id, _windowId, windowId);
+		// Store the incoming hash from the child window
+		if (_windowId) {
 			downstreamHashes.current[_windowId] = hash.slice();
-			const _hash = hash.slice();
-				// console.log('frontWindow...', frontWindow);
-				_hash.push(frontWindow.progName); 
-			
+		}
 
-				if (!_hash.includes('progman.exe')){
+		// Get the hashes from our current front window
+		const _hash = hash.slice();
 
-					sendUpHash(_hash, windowId);
+		// Only add our window's program name if it's visible to hash
+		if (!frontWindow.invisibleToHash) {
+			_hash.push(frontWindow.progName);
+		}
 
-				}
-			
-		}else{
-			// console.log('No front window', frontWindow, windowId, _windowId);
-			//downstreamHashes.current[_windowId].push('');
+		// Don't propagate if we hit the program manager
+		if (!_hash.includes('progman.exe')) {
+			sendUpHash(_hash, windowId);
 		}
 	}
-			
-	
+
 	useEffect(() => {
 		const frontWindow = getCurrentFrontWindow;
-		if (frontWindow){
-			//check if we are the front window
-
-			// console.log('frontWindow:', frontWindow);
-			const hashes = downstreamHashes.current[frontWindow.id]?.slice() || [];
-			// console.log('hashes:', hashes, frontWindow.windowId, windowId);
-			//send with the front window but don't add to downstreamHashes
-			if(!frontWindow.invisibleToHash){
-				// console.log('Sending up hash:', frontWindow.progName);
-				hashes.push(frontWindow.progName);
-			}
-			sendUpHash(hashes, windowId);	
+		if (!frontWindow) {
+			return;
 		}
-	}
-	, [getCurrentFrontWindow, sendUpHash, windowId]);
+
+		// Get stored hashes from the current front window
+		const hashes = downstreamHashes.current[frontWindow.id]?.slice() || [];
+		
+		// Only send up the chain if this window is visible to hash
+		if (!frontWindow.invisibleToHash) {
+			const updatedHashes = [...hashes];
+			updatedHashes.push(frontWindow.progName);
+			sendUpHash(updatedHashes, windowId);
+		} else {
+			// If invisible, just pass through any downstream hashes
+			sendUpHash(hashes, windowId);
+		}
+	}, [getCurrentFrontWindow, sendUpHash, windowId]);
 
 
 
@@ -368,7 +379,7 @@ const WindowManager = ({ programs, windowName, windowId, windowA, handleOpenFunc
 								}
 							}}
 							onClose={() => closeWindow(window)}
-							onClick={() => bringToFront(window.windowId)}
+							onClick={(e) => bringToFront(window.windowId, e)}
 							onDoubleClick={(e) => {
 								e.stopPropagation();
 								bringToFront(window.windowId);
@@ -402,7 +413,7 @@ const WindowManager = ({ programs, windowName, windowId, windowA, handleOpenFunc
 									)}
 									<div className="window-content">
 										<window.component
-											onClick={() => bringToFront(window.windowId)}
+											onClick={(e) => bringToFront(window.windowId, e)}
 
 											key={windowName + '_component_' + _windowId}
 											windowId={window.windowId}

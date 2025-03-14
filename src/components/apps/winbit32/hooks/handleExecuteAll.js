@@ -1,3 +1,5 @@
+import { getGasAsset } from "@doritokit/helpers";
+
 // Helper function to check if a row has transaction data
 export const hasRowTxData = (row) => {
   if (!row) return false;
@@ -24,7 +26,9 @@ export const handleExecuteAll = async (
   skClient,
   handleExecute,
   onOpenWindow,
-  inOrder = false
+  inOrder = false,
+  refreshBalance = () => {},
+  walletsRef = null
 ) => {
   // Get all non-empty rows that have quotes and don't have transaction data
   const validRows = rows.filter(
@@ -73,17 +77,17 @@ export const handleExecuteAll = async (
   const checkRowGas = async (row) => {
     try {
       // Refresh balances to get the latest gas balance
-      await skClient.core.refreshBalance(row.fromToken.chain);
+      await refreshBalance(row.fromToken.chain);
       
       // Get updated wallets
-      const updatedWallets = skClient.core.getWallets();
+      const updatedWallets = walletsRef.current;
       
       // Find the wallet for this token
       const wallet = updatedWallets.find(w => w.chain === row.fromToken.chain);
       if (!wallet) return false;
       
       // Find gas balance
-      const gasAsset = row.fromToken.chain ? skClient.core.getGasAsset({ chain: row.fromToken.chain }) : null;
+      const gasAsset = row.fromToken.chain ? getGasAsset({ chain: row.fromToken.chain }) : null;
       const gasBalance = gasAsset ? wallet.balance?.find(
         b => b.chain === gasAsset.chain && 
           (b.symbol === gasAsset.symbol || b.ticker === gasAsset.symbol)
@@ -158,10 +162,10 @@ export const handleExecuteAll = async (
   const refreshRowBalances = async (row) => {
     try {
       // Get fresh wallet data
-      await skClient.core.refreshBalance(row.fromToken.chain);
+      await refreshBalance(row.fromToken.chain);
       
       // Get updated wallets
-      const updatedWallets = skClient.core.getWallets();
+      const updatedWallets = walletsRef.current;
       
       // Find the wallet for this token
       const wallet = updatedWallets.find(w => w.chain === row.fromToken.chain);
@@ -178,7 +182,7 @@ export const handleExecuteAll = async (
       );
       
       // Find gas balance
-      const gasAsset = row.fromToken.chain ? skClient.core.getGasAsset({ chain: row.fromToken.chain }) : null;
+      const gasAsset = row.fromToken.chain ? getGasAsset({ chain: row.fromToken.chain }) : null;
       const gasBalance = gasAsset ? wallet.balance?.find(
         b => b.chain === gasAsset.chain && 
           (b.symbol === gasAsset.symbol || b.ticker === gasAsset.symbol)

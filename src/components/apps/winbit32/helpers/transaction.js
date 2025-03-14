@@ -84,10 +84,19 @@ export function getExplorerAddressUrl(
 }
 //https://api.thorswap.net/tracker/v2/txn
 
-export function getTxnDetails(txHash) {
+export async function getTxnDetails(txHash) {
+
+	if(typeof txHash === "object"){
+
+		if(txHash.signature){
+			txHash = [txHash.signature, txHash.chainId];
+		}else{
+			txHash = [txHash.hash, txHash.chainId];
+		}
+	}
+
 	console.log("getTxnDetails", txHash);
-
-
+	
 	const url = `https://crunchy.dorito.club/api/track`;
 
 	const body = {
@@ -95,12 +104,28 @@ export function getTxnDetails(txHash) {
 		chainId: txHash[1],
 	}
 
-	return RequestClient.post(url, {
-		body: JSON.stringify(txHash),
+	let res = await RequestClient.post(url, {
+		body: JSON.stringify(body),
 		headers: {
 			"Content-Type": "application/json",
 		},
 	});
+
+
+	console.log('res', res);
+
+	if(!res.status){
+		res.status = 'pending';
+	}
+
+
+	return {
+		...res,
+		done: (res.status === 'completed'),
+		status: res.status,
+		txn: res.txn || txHash[0],
+		lastCheckTime: new Date(),
+	}
 }
 
 export function getTxnDetailsV2(txHash, from) {
@@ -179,7 +204,7 @@ export const checkTxnStatus = async (
 		status.lastCheckTime = new Date();
 		setTxnStatus(status);
 		console.log("status", status);
-		if (status?.done === false && status?.result?.legs?.length > 0) {
+		if (status?.done === false) {
 			setProgress((prev) => (prev < 95 ? prev + 1 : 95));
 			const delay =
 				((status.result.legs.slice(-1).estimatedEndTimestamp -
@@ -235,6 +260,8 @@ export const getTxnUrl = (txHash, chain, skClient) => {
 	try {
 		if(typeof txHash === "string"){
 			txHash = [txHash, chain];
+		}else if(typeof txHash === "object"){
+			txHash = [txHash.signature, chain];
 		}
 
 		
@@ -247,7 +274,7 @@ export const getTxnUrl = (txHash, chain, skClient) => {
 		}
 		
 		if(!chain){
-			chain = ChainToChainId[txHash[1]];
+			chain = chainIdToChain[txHash[1]];
 		}
 		
 		switch (chain) {

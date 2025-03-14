@@ -30,6 +30,7 @@ import { Network, createKeyring } from "@swapkit/toolbox-substrate";
 
 import { getRadixCoreApiClient, createPrivateKey, RadixMainnet } from "./legacyRadix.ts";
 import { SOLToolbox } from "../../toolbox/solana/toolbox.ts";
+import { createKeysForPath as createSolanaKeysForPath } from "../../toolbox/solana/toolbox.ts";
 import { addDialogOptions } from "./dialogOptions"
 import { Wallet as ethersWallet, Wallet } from "ethers";
 import { getNetwork } from "@swapkit/toolbox-utxo";
@@ -234,7 +235,7 @@ const getWalletMethodsForChain = async ({
 
 			// const cApi = covalentApi({apiKey: covalentApiKey, chainId})
 
-			console.log("EVM Chain", chain, rpcUrl, provider, keys, phrase);
+			// console.log("EVM Chain", chain, rpcUrl, provider, keys, phrase);
 
 			const wallet = isPK(phrase)
 				? new ethersWallet(phrase).connect(provider)
@@ -456,7 +457,7 @@ const getWalletMethodsForChain = async ({
 		}
 
 		case Chain.Solana: {
-			const keypair = toolbox.createKeysForPath({ phrase, derivationPath });
+			const keypair = createSolanaKeysForPath({ phrase, derivationPath });
 			toolbox = SOLToolbox({ rpcUrl, fromKeypair: keypair });
 
 			address = toolbox.getAddressFromKeys(keypair);
@@ -469,6 +470,11 @@ const getWalletMethodsForChain = async ({
 				const phrase = await getPhrase(keystore, password);
 				const keypair = toolbox.createKeysForPath({ phrase, derivationPath });
 				args[0] = { ...args[0], from: address, signer: keypair, fromKeypair: keypair };
+				if(args[1]){
+					args[1] = { ...args[1], fromKeypair: keypair };
+				}else{
+					args[1] = { fromKeypair: keypair };
+				}
 				debugLog("Calling on WrappedToolbox:", originalMethod, toolbox, args);
 
 				return toolbox[originalMethod](...args);

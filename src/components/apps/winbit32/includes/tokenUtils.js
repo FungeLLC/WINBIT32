@@ -1,5 +1,6 @@
 // tokenUtils.js
 
+
 export const convertToIdentFormat = (symbol, chain, address) => {
 	if (address) {
 		return `${chain.toUpperCase()}.${symbol.toUpperCase()}-${address.toUpperCase().replace("0X", "0x")}`;
@@ -124,6 +125,7 @@ export 	const fetchTokenPrices = async (swapFrom, swapTo) => {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
+				"x-api-key": "ea7d4900-6dbb-400c-b218-24cebc370bfd",
 			},
 			body: JSON.stringify({
 				tokens: [
@@ -216,6 +218,7 @@ export const fetchMultipleTokenPrices = async (tokens) => {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
+				"x-api-key": "ea7d4900-6dbb-400c-b218-24cebc370bfd",
 			},
 			body: JSON.stringify({
 				tokens: tokenIdentifiers,
