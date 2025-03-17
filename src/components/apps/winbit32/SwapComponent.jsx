@@ -252,7 +252,7 @@ swap_count=${streamingNumSwaps}
 	useEffect(() => {
 		const token = swapFrom;
 		const wallet = wallets.find(w => w?.chain === token?.chain);
-		console.log('Wallet:', wallet, 'Token:', token, 'Hash Path:', hashPath, 'Embed Mode:', embedMode, 'Random Phrase:', isRandomPhrase);
+		// console.log('Wallet:', wallet, 'Token:', token, 'Hash Path:', hashPath, 'Embed Mode:', embedMode, 'Random Phrase:', isRandomPhrase);
 		if (hashPath && hashPath.length > 0 && hashPath[0].includes('CHAINFLIP') && embedMode && isRandomPhrase) {
 			const r = routes.find(route => route.providers.includes('CHAINFLIP_DCA') || route.providers.includes('CHAINFLIP'));
 			setSwapFromAddress(r?.cfQuote?.depositAddress || 'Click Open Channel to get deposit address');
