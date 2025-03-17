@@ -281,6 +281,7 @@ const WindowManager = ({ programs, windowName, windowId, windowA, handleOpenFunc
 		const frontWindow = getCurrentFrontWindow;
 
 		if (!frontWindow) {
+			console.log('No front window, sending up hash:', hash, windowA);
 			// If no front window and we're invisible to hash, don't propagate
 			if (windowA?.invisibleToHash) {
 				return;
@@ -296,18 +297,20 @@ const WindowManager = ({ programs, windowName, windowId, windowA, handleOpenFunc
 		if (_windowId) {
 			downstreamHashes.current[_windowId] = hash.slice();
 		}
+		if(frontWindow.id === windowId){
 
-		// Get the hashes from our current front window
-		const _hash = hash.slice();
+			// Get the hashes from our current front window
+			const _hash = hash.slice();
 
-		// Only add our window's program name if it's visible to hash
-		if (!frontWindow.invisibleToHash) {
-			_hash.push(frontWindow.progName);
-		}
+			// Only add our window's program name if it's visible to hash
+			if (!frontWindow.invisibleToHash) {
+				_hash.push(frontWindow.progName.replace('.exe', ''));
+			}
 
-		// Don't propagate if we hit the program manager
-		if (!_hash.includes('progman.exe')) {
-			sendUpHash(_hash, windowId);
+			// Don't propagate if we hit the program manager
+			if (!_hash.includes('progman')) {
+				sendUpHash(_hash, windowId);
+			}
 		}
 	}
 
@@ -323,7 +326,7 @@ const WindowManager = ({ programs, windowName, windowId, windowA, handleOpenFunc
 		// Only send up the chain if this window is visible to hash
 		if (!frontWindow.invisibleToHash) {
 			const updatedHashes = [...hashes];
-			updatedHashes.push(frontWindow.progName);
+			updatedHashes.push(frontWindow.progName.replace('.exe', ''));
 			sendUpHash(updatedHashes, windowId);
 		} else {
 			// If invisible, just pass through any downstream hashes

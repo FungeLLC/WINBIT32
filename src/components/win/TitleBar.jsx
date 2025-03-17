@@ -105,7 +105,7 @@ const TitleBar = ({
 		let newHashParts = hashParts.slice(0, hashParts.length - 1);
 		newHashParts.forEach((part, index) => {
 			let pOpts = {};
-			if (part.endsWith('.exe') && shareProgOptions[part]) {
+			if (!part.includes('&') && shareProgOptions[part]) {
 
 				shareProgOptions[part].forEach((progOption, index2) => {
 					if (progOption.set) {
@@ -131,7 +131,7 @@ const TitleBar = ({
 
 	const openInNewTab = () => {
 		const newTabJson = (metadata.phrase) ? JSON.stringify({ phrase: metadata.phrase }) : '';
-		const newTabURL = newTabJson ? window.location.href.replace('winbit32.exe', 'winbit32.exe~' + btoa(newTabJson)) : window.location.href;
+		const newTabURL = newTabJson ? window.location.href.replace('winbit32', 'winbit32~' + btoa(newTabJson)) : window.location.href;
 		console.log('newTabURL', newTabURL, window.location);
 		window.open(newTabURL, '_blank');
 	}

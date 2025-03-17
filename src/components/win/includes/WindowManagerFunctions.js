@@ -52,7 +52,10 @@ export function createNewWindow(
 	sendUpHash = () => {}
 ) {
 	if (typeof program === "string") {
-		const progString = program.toLowerCase();
+		let progString = program.toLowerCase();
+		if(!progString.includes('.exe')){
+			progString = progString + '.exe';
+		}
 		console.log(progString, programs);
 		program = recursiveFindProgram(programs, progString);
 		if (!program) {

@@ -1076,6 +1076,8 @@ export const useWindowSKClient = (key) => {
 				if (loadingTokensPromise.current) {
 					console.log("Tokens are still loading", loadingTokensPromise.current);
 					await loadingTokensPromise.current;
+					//wait 1 second before retrying
+					await new Promise(resolve => setTimeout(resolve, 3000));
 					return waitForTokens();
 				}
 				

@@ -1,3 +1,5 @@
+import { SwapKitApi } from "@doritokit/api";
+
 /**
  * API Service
  * Handles token loading and API creation
@@ -63,14 +65,16 @@ export const loadTokens = async (globalTokens, dispatch) => {
 			providerResponse = await fetch(baseUrl + "providers");
 			
 			if (providerResponse.status !== 200) {
-				console.log("Switching to backup API endpoint");
-				baseUrl = "https://api.swapkit.dev/";
-				providerResponse = await fetch(baseUrl + "providers");
+				// console.log("Switching to backup API endpoint");
+				// baseUrl = "https://api.swapkit.dev/";
+				throw new Error("Failed to fetch providers from primary endpoint");
+				// providerResponse = await fetch(baseUrl + "providers");
 			}
 		} catch (error) {
 			console.error("Failed to fetch providers from primary endpoint:", error);
-			baseUrl = "https://api.swapkit.dev/";
-			providerResponse = await fetch(baseUrl + "providers");
+			// baseUrl = "https://api.swapkit.dev/";
+			throw new Error("Failed to fetch providers from primary endpoint");
+			// providerResponse = await fetch(baseUrl + "providers");
 		}
 		
 		const providersUnsorted = await providerResponse.json();

@@ -112,7 +112,7 @@ const App = () => {
 			const rHashParts = hashParts.slice().reverse();
 			//console.log("Got Hash Parts:", hashParts);
 			let newHash = hashParts.length ? `#${rHashParts.join("/")}` : "";
-			if( newHash === "#progman.exe"){
+			if( newHash === "#progman"){
 				newHash = "";
 			}
 			//console.log("Setting hash to...", newHash);

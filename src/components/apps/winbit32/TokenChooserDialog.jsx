@@ -479,7 +479,14 @@ const TokenChooserDialog = ({ isOpen, onClose, onConfirm, providerKey, wallets, 
 				buttons={[
 					{ label: "Retry", onClick: () => {
 						setTokenLoadingStatus('loading');
-						loadProvidersAndTokens().catch(() => setTokenLoadingStatus('error'));
+						if(window.loadProvidersAndTokens && typeof window.loadProvidersAndTokens === 'function'){
+							window.loadProvidersAndTokens().catch(() => setTokenLoadingStatus('error'));
+						}else{
+							//reload the tokens
+							loadTokens().catch(() => setTokenLoadingStatus('error'));
+
+
+						}
 					}},
 					{ label: "Cancel", onClick: onClose }
 				]}
