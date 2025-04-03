@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import axios from 'axios';
 import styled from 'styled-components';
+
 
 // Layout constants
 const LAYOUT_CONSTANTS = {
@@ -15,8 +15,15 @@ const LAYOUT_CONSTANTS = {
 const TILES_PER_LEVEL = 18; // 5+4+5+4 pattern
 const VISIBLE_LEVELS = 4;
 const BUFFER_LEVELS = 2;
-const BASE_URL = 'https://api-mainnet.magiceden.dev/v2/ord/btc/raresats';
+const BASE_URL = 'https://api-mainnet.magiceden.io/v2/ord/btc/raresats';
 const SPONSOR_WALLET = 'bc1p88gpg7xjv9fvh28wnklesjs3wpj6mhp2ulnrtyc4hkxtwhqly7uqyhmtka';
+const fetch = require("fetch-retry")(global.fetch);
+const headers = {
+	'Content-type': 'application/json',
+	'Authorization': 'Bearer 92c62b16-f5ac-4ad9-849a-a30a9770a4b6',
+	'Accept': 'application/json',
+	'Origin': 'https://magiceden.io'
+};
 
 /** Faux 3D styling constants:
  *  - The face will be `tile.width × tile.height`.
@@ -408,10 +415,7 @@ const fetchPage = async (offset = 0, accumulator = [], isSponsored = false) => {
     // Cache miss or expired - fetch fresh data
     console.log('Cache miss:', cacheKey);
 
-	const headers = {
-		'Content-Type': 'application/json',
-		'Authorization': 'Bearer 92c62b16-f5ac-4ad9-849a-a30a9770a4b6'
-	};
+
 
     const endpoint = isSponsored ? `${BASE_URL}/wallet/utxos` : `${BASE_URL}/utxos`;
     const params = isSponsored
@@ -424,8 +428,28 @@ const fetchPage = async (offset = 0, accumulator = [], isSponsored = false) => {
           disablePendingTransactions: true,
         };
 
-    const result = await axios.get(endpoint, { headers, params });
-    const tokens = result.data.tokens || [];
+	 const URLparams = new URLSearchParams();
+	 Object.entries(params).forEach(([key, value]) => {
+		URLparams.append(key, value);
+	 });
+
+
+    // const result = await axios.get(endpoint, { headers, params });
+	  const response = await fetch(endpoint + '?' + URLparams.toString(), {
+		  method: "GET",
+		  headers: headers,
+		  mode: 'cors',
+		  retries: 2,
+		  retryDelay: function (attempt, error, response) {
+			  const delay = Math.pow(2, attempt) * 2000; // 1000, 2000, 4000
+			  console.log(`Retrying in ${delay}ms`, error, response);
+			  return delay;
+		  },
+		  retryOn: [504],
+	  });
+	const result = await response.json();
+	console.log('result', result);
+    const tokens = result.tokens || [];
     const compressedData = { tokens: tokens.map(compressListing) };
 
     // Update cache
@@ -506,9 +530,27 @@ const fetchAllListings = async () => {
 					attributes: '{"satributes":["Block 9 450x","Block 9"]}',
 					disablePendingTransactions: true,
 				};
+			
+			const URLparams = new URLSearchParams();
+			Object.entries(params).forEach(([key, value]) => {
+				URLparams.append(key, value);
+			});
 
-			const result = await axios.get(endpoint, { params });
-			const tokens = result.data.tokens || [];
+			const response = await fetch(endpoint + '?' + URLparams.toString(), {
+				method: "GET",
+				headers: headers,
+				mode: 'cors',
+				retries: 2,
+				retryDelay: function (attempt, error, response) {
+					const delay = Math.pow(2, attempt) * 2000; // 1000, 2000, 4000
+					console.log(`Retrying in ${delay}ms`, error, response);
+					return delay;
+				},
+				retryOn: [504],
+			});
+			const result = await response.json();
+			console.log('result', result);
+			const tokens = result.tokens || [];
 			const compressedData = { tokens: tokens.map(compressListing) };
 
 			cleanupCache();
