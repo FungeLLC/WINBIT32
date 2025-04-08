@@ -10,8 +10,8 @@ import {
 	ensureEVMApiKeys,
 	setRequestClientConfig,
 	ChainToChainId
-} from "@swapkit/helpers";
-import { decryptFromKeystore, Keystore } from "@swapkit/wallet-keystore";
+} from "@doritokit/helpers";
+import { decryptFromKeystore, Keystore } from "@doritokit/wallet-keystore";
 import { mnemonicToSeedSync } from 'bip39';
 import { derivePath as deriveEd25519Path } from 'ed25519-hd-key';
 import { HDKey } from "@scure/bip32";
@@ -21,12 +21,12 @@ import {
 import { ECPairFactory, type ECPairInterface } from "ecpair";
 
 import { wbRadixToolbox } from "../../plugins/winbitRadixToolbox.ts";
-import { HDNodeWallet, getProvider, getToolboxByChain as getToolboxByChainEVM } from "@swapkit/toolbox-evm";
-import { BCHToolbox } from "@swapkit/toolbox-utxo";
-import { getToolboxByChain as getToolboxByChainUTXO } from "@swapkit/toolbox-utxo";
+import { HDNodeWallet, getProvider, getToolboxByChain as getToolboxByChainEVM } from "@doritokit/toolbox-evm";
+import { BCHToolbox } from "@doritokit/toolbox-utxo";
+import { getToolboxByChain as getToolboxByChainUTXO } from "@doritokit/toolbox-utxo";
 import { getToolboxByChain as getToolboxByChainCosmos } from "../../toolbox/cosmos/index.ts";
 import { getToolboxByChain as getToolboxByChainSubstrate } from "../../plugins/substrateToolboxFactory.ts";
-import { Network, createKeyring } from "@swapkit/toolbox-substrate";
+import { Network, createKeyring } from "@doritokit/toolbox-substrate";
 
 import { getRadixCoreApiClient, createPrivateKey, RadixMainnet } from "./legacyRadix.ts";
 import { SOLToolbox } from "../../toolbox/solana/toolbox.ts";
@@ -228,10 +228,12 @@ const getWalletMethodsForChain = async ({
 		case Chain.Optimism:
 		case Chain.Polygon: {
 			const keys = ensureEVMApiKeys({ chain, covalentApiKey, ethplorerApiKey });
+			console.log("EVM Chain preprovider", chain, rpcUrl);
 			const provider = getProvider(chain, rpcUrl);
+			console.log("EVM Chain postprovider", chain, rpcUrl, provider);
 			const chainId = ChainToChainId[chain];
 
-			// console.log("EVM ChainId", chain, chainId);
+			//console.log("EVM ChainId", chain, chainId);
 
 			// const cApi = covalentApi({apiKey: covalentApiKey, chainId})
 
@@ -381,7 +383,7 @@ const getWalletMethodsForChain = async ({
 
 			const signer = await createKeyring(phrase, Network[chain].prefix);
 
-			console.log("Substrate Signer", chain, signer);//"wss://api-chainflip.dwellir.com/204dd906-d81d-45b4-8bfa-6f5cc7163dbc"
+			console.log("Substrate Signer", chain, signer);//"wss://api-chainflip.n.dwellir.com/204dd906-d81d-45b4-8bfa-6f5cc7163dbc"
 
 			toolbox = await getToolboxByChainSubstrate(chain, {
 				signer,

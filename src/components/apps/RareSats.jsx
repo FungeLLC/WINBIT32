@@ -15,14 +15,12 @@ const LAYOUT_CONSTANTS = {
 const TILES_PER_LEVEL = 18; // 5+4+5+4 pattern
 const VISIBLE_LEVELS = 4;
 const BUFFER_LEVELS = 2;
-const BASE_URL = 'https://api-mainnet.magiceden.io/v2/ord/btc/raresats';
+const BASE_URL = 'https://meapi.winbit32.com/ord/btc/raresats';
 const SPONSOR_WALLET = 'bc1p88gpg7xjv9fvh28wnklesjs3wpj6mhp2ulnrtyc4hkxtwhqly7uqyhmtka';
 const fetch = require("fetch-retry")(global.fetch);
 const headers = {
 	'Content-type': 'application/json',
-	'Authorization': 'Bearer 92c62b16-f5ac-4ad9-849a-a30a9770a4b6',
 	'Accept': 'application/json',
-	'Origin': 'https://magiceden.io'
 };
 
 /** Faux 3D styling constants:
