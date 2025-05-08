@@ -468,8 +468,8 @@ export const SKClientProviderManager = ({ children }) => {
 				...phantomWallet,
 			},
 			rpcUrls: {
-					Chainflip: "wss://rpc.chainflip.winbit32.com",
-					FLIP: "wss://rpc.chainflip.winbit32.com",
+					Chainflip: "https://chainflip.winbit32.com",
+					FLIP: "https://chainflip.winbit32.com",
 					Ethereum: "https://mainnet.infura.io/v3/c3b4e673639742a89bbddcb49895d568",
 					ETH: "https://api-ethereum-mainnet.n.dwellir.com/204dd906-d81d-45b4-8bfa-6f5cc7163dbc",
 					AVAX: "https://avalanche-mainnet.infura.io/v3/c3b4e673639742a89bbddcb49895d568",
@@ -481,6 +481,7 @@ export const SKClientProviderManager = ({ children }) => {
 					OP: "https://api-optimism-mainnet-archive.n.dwellir.com/204dd906-d81d-45b4-8bfa-6f5cc7163dbc",
 					MATIC: "https://api-polygon-mainnet-full.n.dwellir.com/204dd906-d81d-45b4-8bfa-6f5cc7163dbc",
 					SOL: "https://rpc.ankr.com/solana/fb4077f99c50c07e75aec9cfcebfaf971cb3fce319a807e823943f962dc04e7d",
+
 				},
 			});
 			
@@ -817,7 +818,7 @@ export const SKClientProviderManager = ({ children }) => {
 				}
 
 				const chainflipToolbox = await ChainflipToolbox({
-					providerUrl: "wss://rpc.chainflip.winbit32.com",
+					providerUrl: "https://chainflip.winbit32.com",
 					signer: keyRing,
 					keyring: keyRing,
 					generic: false,

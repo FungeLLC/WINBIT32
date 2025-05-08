@@ -182,10 +182,122 @@ const getCachedPrice = (identifier) => {
 	return cached;
 };
 
+/**
+ * Fetch token prices with chunking strategy to handle API failures
+ * Recursively splits problematic chunks until we identify and isolate problem tokens
+ */
+const fetchTokenPriceChunk = async (tokenChunk, retryDepth = 0) => {
+	try {
+		if (tokenChunk.length === 0) return [];
+		
+		// Maximum retry depth to prevent infinite recursion
+		if (retryDepth > 3) {
+			console.warn(`Maximum retry depth reached for tokens: ${tokenChunk.join(', ')}`);
+			return tokenChunk.map(token => ({
+				identifier: token,
+				price_usd: 0,
+				time: Date.now(),
+				failed: true
+			}));
+		}
+
+		// Prepare token identifiers for API call
+		const tokenIdentifiers = tokenChunk.map((token) => ({ identifier: token }));
+		const now = Date.now();
+
+		// Fetch fresh prices from API
+		const response = await fetch("https://api.swapkit.dev/price", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"x-api-key": "ea7d4900-6dbb-400c-b218-24cebc370bfd",
+			},
+			body: JSON.stringify({
+				tokens: tokenIdentifiers,
+				metadata: true,
+			}),
+		});
+
+		// Handle API errors
+		if (!response.ok) {
+			if (response.status === 500) {
+				// If there's only one token that failed, mark it as problematic and return
+				if (tokenChunk.length === 1) {
+					console.warn(`Token ${tokenChunk[0]} caused API error`);
+					return [{
+						identifier: tokenChunk[0],
+						price_usd: 0,
+						time: now,
+						failed: true
+					}];
+				}
+
+				// Split the chunk in half and try each half separately
+				const midpoint = Math.ceil(tokenChunk.length / 2);
+				const firstHalf = tokenChunk.slice(0, midpoint);
+				const secondHalf = tokenChunk.slice(midpoint);
+
+				console.log(`Splitting problematic chunk of ${tokenChunk.length} tokens into chunks of ${firstHalf.length} and ${secondHalf.length}`);
+				
+				// Recursively process both halves
+				const firstResults = await fetchTokenPriceChunk(firstHalf, retryDepth + 1);
+				const secondResults = await fetchTokenPriceChunk(secondHalf, retryDepth + 1);
+				
+				return [...firstResults, ...secondResults];
+			} else {
+				// For other errors, throw to be caught by the outer catch
+				throw new Error(`API request failed with status ${response.status}`);
+			}
+		}
+
+		// Process successful response
+		const data = await response.json();
+		return data.map((item) => {
+			const result = {
+				identifier: item.identifier,
+				price_usd: item.price_usd,
+				time: now
+			};
+			
+			// Update cache with new values
+			priceCache.set(item.identifier.toLowerCase(), {
+				price: item.price_usd,
+				timestamp: now
+			});
+			
+			return result;
+		});
+	} catch (error) {
+		console.error(`Error fetching chunk of ${tokenChunk.length} tokens:`, error);
+		
+		// For network errors or other issues, if it's a single token, mark as failed
+		if (tokenChunk.length === 1) {
+			return [{
+				identifier: tokenChunk[0],
+				price_usd: 0,
+				time: Date.now(),
+				failed: true
+			}];
+		}
+		
+		// Otherwise split and retry
+		const midpoint = Math.ceil(tokenChunk.length / 2);
+		const firstHalf = tokenChunk.slice(0, midpoint);
+		const secondHalf = tokenChunk.slice(midpoint);
+		
+		console.log(`Splitting error chunk of ${tokenChunk.length} tokens into chunks of ${firstHalf.length} and ${secondHalf.length}`);
+		
+		const firstResults = await fetchTokenPriceChunk(firstHalf, retryDepth + 1);
+		const secondResults = await fetchTokenPriceChunk(secondHalf, retryDepth + 1);
+		
+		return [...firstResults, ...secondResults];
+	}
+};
+
 export const fetchMultipleTokenPrices = async (tokens) => {
 	try {
 		// Deduplicate tokens
-		const uniqueTokens = [...new Set(tokens.map(t => t.toLowerCase()))];
+		const uniqueTokens = [...new Set(tokens.map(t => t))].slice(0, 10);
 		
 		// Get currently valid cached prices
 		const now = Date.now();
@@ -210,40 +322,8 @@ export const fetchMultipleTokenPrices = async (tokens) => {
 			}));
 		}
 		
-		// Prepare token identifiers for API call
-		const tokenIdentifiers = toFetch.map((token) => { return {identifier: token.toLowerCase()};});
-
-		// Fetch fresh prices from API
-		const response = await fetch("https://api.swapkit.dev/price", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				"x-api-key": "ea7d4900-6dbb-400c-b218-24cebc370bfd",
-			},
-			body: JSON.stringify({
-				tokens: tokenIdentifiers,
-				metadata: true,
-			}),
-		});
-
-		const data = await response.json();
-
-		// Process and cache the results
-		const fetchedResults = data.map((item) => {
-			const result = {
-				identifier: item.identifier,
-				price_usd: item.price_usd,
-				time: now
-			};
-			
-			// Update cache with new values
-			priceCache.set(item.identifier.toLowerCase(), {
-				price: item.price_usd,
-				timestamp: now
-			});
-			
-			return result;
-		});
+		// Fetch prices with chunking strategy
+		const fetchedResults = await fetchTokenPriceChunk(toFetch);
 
 		// Combine fetched results with cached results
 		const tokenUSDPrices = uniqueTokens.map(token => {

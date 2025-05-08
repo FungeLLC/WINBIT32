@@ -7,7 +7,15 @@ const chainIdToAlchemyNetwork = {
   [ChainId.Optimism]: 'opt-mainnet',
   [ChainId.Polygon]: 'polygon-mainnet',
   [ChainId.Arbitrum]: 'arb-mainnet',
-  [ChainId.Base]: 'base-mainnet'
+  [ChainId.Base]: 'base-mainnet',
+  [ChainId.BinanceSmartChain]: 'bnb-mainnet',
+  [ChainId.Avalanche]: 'avax-mainnet',
+  [ChainId.THORChain]: 'thor-mainnet',
+  [ChainId.Maya]: 'maya-mainnet',
+  [ChainId.Kujira]: 'kujira-mainnet',
+  [ChainId.Cosmos]: 'cosmos-mainnet',
+  [ChainId.Polkadot]: 'polkadot-mainnet',
+  [ChainId.Chainflip]: 'chainflip-mainnet',
 } as const;
 
 interface AlchemyTokenBalance {

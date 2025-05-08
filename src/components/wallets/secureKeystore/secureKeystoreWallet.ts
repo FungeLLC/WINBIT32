@@ -233,7 +233,7 @@ const getWalletMethodsForChain = async ({
 			console.log("EVM Chain postprovider", chain, rpcUrl, provider);
 			const chainId = ChainToChainId[chain];
 
-			//console.log("EVM ChainId", chain, chainId);
+			console.log("EVM ChainId derivation index", chain, chainId, derivationPath);
 
 			// const cApi = covalentApi({apiKey: covalentApiKey, chainId})
 
@@ -241,7 +241,7 @@ const getWalletMethodsForChain = async ({
 
 			const wallet = isPK(phrase)
 				? new ethersWallet(phrase).connect(provider)
-				: HDNodeWallet.fromPhrase(phrase).connect(provider);
+				: HDNodeWallet.fromPhrase(phrase, null, derivationPath).connect(provider);
 			const params = { ...keys, provider, signer: wallet, api };
 
 			address = wallet.address;
@@ -251,13 +251,15 @@ const getWalletMethodsForChain = async ({
 			// Specify sensitive methods for EVM chains
 			sensitiveMethods = ['transfer', 'signMessage', 'approve', 'call', 'estimateCall', 'sendTransaction', 'createTransferTx', 'createApprovalTx'];
 
+		
+
 			// Wrap sensitive methods
 			const wrappedToolbox = wrapSensitiveMethods(toolbox, (originalMethodName) => async (...args: any[]) => {
 				const { password } = await passwordRequest({ title: "EVM wallet password for " + originalMethodName + " required" }) as { password: string };
 				const phrase = await getPhrase(keystore, password);
 				const wallet = isPK(phrase)
 					? new ethersWallet(phrase).connect(provider)
-					: HDNodeWallet.fromPhrase(phrase).connect(provider);
+					: HDNodeWallet.fromPhrase(phrase, null, derivationPath).connect(provider);
 					//console.log("GOT ETHTYPE WALLET", phrase, isPK(phrase), wallet);
 				const signerToolbox = getToolboxByChainEVM(chain)({ ...keys, api, provider, signer: wallet });
 				debugLog("Calling on WrappedToolbox:", originalMethodName, signerToolbox, args);
@@ -387,7 +389,7 @@ const getWalletMethodsForChain = async ({
 
 			toolbox = await getToolboxByChainSubstrate(chain, {
 				signer,
-				providerUrl: chain === Chain.Polkadot ? RPCUrl.Polkadot : "wss://rpc.chainflip.winbit32.com" as RPCUrl,
+				providerUrl: chain === Chain.Polkadot ? RPCUrl.Polkadot : "wss://api-chainflip.n.dwellir.com/204dd906-d81d-45b4-8bfa-6f5cc7163dbc" as RPCUrl,
 			});
 
 			address = signer.address;
