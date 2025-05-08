@@ -16,8 +16,9 @@ function ConnectionApp({ windowId, providerKey, phrase, setPhrase, connectionSta
 						phraseSaved, setPhraseSaved, programData}) {
 
 	const [phraseFocus, setPhraseFocus] = useIsolatedState(windowId, 'phraseFocus', false);
+	const [showPhrase, setShowPhrase] = useIsolatedState(windowId, 'showPhrase', true);
 
-	const { embedMode } = appData || {};
+	const { embedMode, isRandomPhrase } = appData || {};
 	//on phrase blur then remove all invalid words
 	useEffect(() => {
 		if(!phrase) return; 
@@ -104,7 +105,7 @@ function ConnectionApp({ windowId, providerKey, phrase, setPhrase, connectionSta
 	return (
 		<div className={"connection-app" + (embedMode? ' embeded':'')}>
 			<div className="content">
-				{ programData && !programData.lockMode && !embedMode &&
+				{ programData && !programData.lockMode && !embedMode && showPhrase &&
 				<div className="row">
 					<textarea
 						id="phrase"
@@ -119,6 +120,10 @@ function ConnectionApp({ windowId, providerKey, phrase, setPhrase, connectionSta
 							if(t.trim().split(' ').length === 1){
 
 								setPhrase(e.target.value.replace(/[^a-zA-Z0-9 ]/g, ' ').replace(/  +/g, ' '));
+
+							}else if(walletNames.includes(t.trim().split(' ')[0])){
+
+								setPhrase(t);
 
 							}else{
 								//replace everything except letters and spaces, except allow a number, only on the end
@@ -154,7 +159,9 @@ function ConnectionApp({ windowId, providerKey, phrase, setPhrase, connectionSta
 					<div className="status-message">
 						<div style={{display: 'flex',alignItems: 'center'}}>{statusMessage}</div>
 						{!phraseSaved && !programData.lockMode && <div style={{ color: 'red' }} onClick={() => setPhraseSaved(true)}>Phrase not saved or copied <span style={{cursor: 'pointer'}}>❌</span></div>}
-			
+						{!programData.lockMode &&
+						<div style={{ display: 'flex' }} onClick={() => setShowPhrase(!showPhrase)}>{showPhrase ? '👁' : '👁'}</div>
+						}
 					</div>
 					<div style={
 						{width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }

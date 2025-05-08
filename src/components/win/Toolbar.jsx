@@ -16,7 +16,7 @@ const Toolbar = ({ subPrograms, onSubProgramClick, programData }) => {
 					key={index}
 					 onClick={
 						() => {
-							console.log('Toolbar click', program, programData);
+							// console.log('Toolbar click', program, programData);
 							// const clonedProgram = _.cloneDeep(program);
 							// clonedProgram.programData = programData;
 							onSubProgramClick(program, programData);

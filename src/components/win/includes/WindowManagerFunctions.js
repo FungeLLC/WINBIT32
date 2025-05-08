@@ -7,6 +7,36 @@ const addWindowAction = (newWindow) => ({
 	payload: newWindow,
 });
 
+const MAXIMIZE_WINDOW = "MAXIMIZE_WINDOW";
+
+const maximiseWindowAction = (window) => ({
+	type: MAXIMIZE_WINDOW,
+	payload: window,
+});
+
+
+const recursiveFindProgram = (programs, progName) => {
+
+	console.log('recursiveFindProgram', programs, progName);
+
+	for (let i = 0; i < programs.length; i++) {
+		const p = programs[i];
+
+		if (p.progName === progName || p.progName + ".exe" === progName) {
+			if (p.openLevel === undefined) return p;
+		}
+
+		if (p.programs) {
+			const nestedP = recursiveFindProgram(p.programs, progName);
+			if (nestedP) {
+				return nestedP;
+			}
+		}
+
+	}
+};
+
+
 export function createNewWindow(
 	programs,
 	windowName,
@@ -22,25 +52,31 @@ export function createNewWindow(
 	sendUpHash = () => {}
 ) {
 	if (typeof program === "string") {
-		const progString = program.toLowerCase();
-		console.log(progString, programs);
-		program = programs.find((p) => p.progName.toLowerCase() === progString);
-		if (!program) {
-			program = programs.find(
-				(p) => p.progName.toLowerCase() === progString + ".exe"
-			);
+		let progString = program.toLowerCase();
+		if(!progString.includes('.exe')){
+			progString = progString + '.exe';
 		}
+		console.log(progString, programs);
+		program = recursiveFindProgram(programs, progString);
 		if (!program) {
 			console.error("Program not found", progString);
 			return;
 		}
 	} else {
-		if (window.document.body.classList.contains("wait")) {
+		if (
+			window.document.body.classList.contains("wait") &&
+			window.waitingFor === program.progName
+		) {
 			console.log("Already waiting for a program to load");
 			return;
 		}
 		window.document.body.classList.add("wait");
 		window.document.body.style.cursor = "url(/waits.png), auto";
+		//save a global 'waitingFor' variable
+
+		console.log('Setting waiting for', program.progName);
+		window.waitingFor = program.progName;
+
 	}
 
 	console.log("Creating new window", program.progName);
@@ -106,6 +142,10 @@ export function createNewWindow(
 	console.log("dispatching add window action", newWindow);
 	dispatch(addWindowAction(newWindow));
 	console.log("Added window", newWindow);
+	if(program.maximised){
+		console.log('Maximising window', newWindow.id);
+		dispatch(maximiseWindowAction(newWindow));	
+	}
 
 	//only do at top level... count handleOpenArray
 	if (windowName === "desktop") {

@@ -22,7 +22,8 @@ const WindowBorder = React.memo(({
 	children,
 	embedable,
 	inContainer,
-	metadata
+	metadata,
+	windowA
 }) => {
 
 	const { getWindowContent } = useWindowData();
@@ -73,6 +74,7 @@ const WindowBorder = React.memo(({
 						embedable={embedable}
 						embeded={embedMode && inContainer}
 						metadata={metadata}
+						windowA={windowA}
 					>
 						{children} {/* Additional content */}
 					</Window>
@@ -146,6 +148,10 @@ const WindowBorder = React.memo(({
 
 							appData={appData}
 							isActiveWindow={isActiveWindow}
+							embedable={embedable}
+							embeded={embedMode && inContainer}
+							metadata={metadata}
+							windowA={windowA}
 						>
 							{children} {/* Additional content */}
 						</Window>

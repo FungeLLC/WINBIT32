@@ -104,6 +104,12 @@ textarea {
 	padding-left: 3px;
 }
 
+.status-message>div:first-of-type{
+
+	flex:1;
+
+}
+
 @media screen and (max-width: 600px) {
 	.connection-app {
 		width: 100%;

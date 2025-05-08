@@ -6,10 +6,10 @@ import {
 } from "@radixdlt/radix-engine-toolkit";
 import { TransactionBuilder, generateRandomNonce, ManifestBuilder, decimal, address as addressType, bucket, str, enumeration } from '@radixdlt/radix-engine-toolkit';
 import bigInt from 'big-integer';
-import { mayaRadixRouter } from '../../apps/winbit32/helpers/maya.js';
+import { mayaRadixRouter } from '../apps/winbit32/helpers/maya.js';
 
 export const wbRadixToolbox = async({ api, signer }) => {
-	const { getRadixCoreApiClient, RadixToolbox, createPrivateKey, RadixMainnet } = await import("./legacyRadix.ts");
+	const { getRadixCoreApiClient, RadixToolbox, createPrivateKey, RadixMainnet } = await import("../wallets/secureKeystore/legacyRadix.ts");
 
 	let address: string;
 	let toolbox: any;

@@ -20,6 +20,7 @@ const TitleBar = ({
 	embedable,
 	embeded,
 	metadata,
+	windowA,
 	...rest
 }) => {
 	// console.log('TitleBar', title, appData, rest);
@@ -104,7 +105,7 @@ const TitleBar = ({
 		let newHashParts = hashParts.slice(0, hashParts.length - 1);
 		newHashParts.forEach((part, index) => {
 			let pOpts = {};
-			if (part.endsWith('.exe') && shareProgOptions[part]) {
+			if (!part.includes('&') && shareProgOptions[part]) {
 
 				shareProgOptions[part].forEach((progOption, index2) => {
 					if (progOption.set) {
@@ -123,14 +124,14 @@ const TitleBar = ({
 	}, [shareOptions, shareProgOptions]);
 
 	const siteName = window.location.hostname.includes('winbit')? 'https://WINBIT32.COM': window.location.origin;
-	const shareURL = siteName + '#' + shareHash;
-	const embedURL = siteName + '#~embedMode=true/' + shareHash;
+	const shareURL = siteName + '/#' + shareHash;
+	const embedURL = siteName + '/#~embedMode=true/' + shareHash;
 	// console.log(shareOptions);
 	const embedCode = `<iframe src="${embedURL}" width="465" height="800" style="border: none;" allow="clipboard-write, camera"></iframe>`;
 
 	const openInNewTab = () => {
 		const newTabJson = (metadata.phrase) ? JSON.stringify({ phrase: metadata.phrase }) : '';
-		const newTabURL = newTabJson ? window.location.href.replace('winbit32.exe', 'winbit32.exe~' + btoa(newTabJson)) : window.location.href;
+		const newTabURL = newTabJson ? window.location.href.replace('winbit32', 'winbit32~' + btoa(newTabJson)) : window.location.href;
 		console.log('newTabURL', newTabURL, window.location);
 		window.open(newTabURL, '_blank');
 	}
@@ -150,15 +151,14 @@ const TitleBar = ({
 					</div>
 				}
 				<div className='title-text' onDoubleClick={handleMaximize} onClick={onClick}>
-					{title}{license && <> &nbsp; ᛝ</>}
+					{title}{license && <> &nbsp; ᛝ</>}{windowA?.titleNote && <>({windowA.titleNote})</>}
 				</div>
 
 
 
 				{showMinMax && (
-					<div className='maxmin'>
-
-						{embedable && <div
+					<div className='maxmin' >
+						{embedable && <>{!embedMode ? <div style={{float:'right'}}>Share →</div> : ''}<div
 							className="button embed"
 							onClick={() => {
 								if (embedMode) {
@@ -171,7 +171,7 @@ const TitleBar = ({
 							}
 						>
 							{!embedMode ? '⛓' : '⧉'}
-						</div>}
+						</div></>}
 						{(!embedable || !embedMode) &&
 							<>
 								{license ? //Windows 95 style titlebar buttons
@@ -227,7 +227,7 @@ const TitleBar = ({
 				<DialogBox
 					title="Share Options"
 					modal={true}
-					icon="info"
+					icon=""
 					buttons={[{ label: 'Close', onClick: () => { setShowDialog(false) } }]}
 					onClose={() => { setShowDialog(false) }}
 					showMinMax={false}

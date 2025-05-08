@@ -1,10 +1,10 @@
 import { AssetValue } from "@swapkit/sdk";
-import { getQuoteFromThorSwap, getQuoteFromSwapKit } from "./quote";
+import { getQuoteFromChainflip, getQuoteFromSwapKit, getQuoteFromThorchainDirect, getQuoteFromDoritoKit } from "./quote";
 import { amountInBigNumber } from "./quote";
-import { SwapKitApi } from "@swapkit/api";
 import bigInt from "big-integer";
 import { getQuoteFromMaya } from "./maya";
 import { forEach } from "lodash";
+import { getAssetValue } from "./quote";
 
 export const getQuotes = async (
 	oSwapFrom,
@@ -27,17 +27,21 @@ export const getQuotes = async (
 	thorAffiliate,
 	mayaAffiliate,
 	setThorAffiliate,
-	setMayaAffiliate
+	setMayaAffiliate,
+	numChunks,
+	chunkIntervalBlocks,
+	providers
 ) => {
 	const thisDestinationAddress =
 		destinationAddress || chooseWalletForToken(swapTo, wallets)?.address;
 		//clone oSwapFrom
-	let swapFrom = JSON.parse(JSON.stringify(oSwapFrom));
+
+	let swapFrom = Object.assign({}, oSwapFrom);
 
 	const currentSelectedRoute = selectedRoute || "optimal";
 
 	if (swapFrom && swapTo && amount && thisDestinationAddress) {
-		setStatusText("");
+		//setStatusText("");
 		setQuoteStatus("Getting Quotes...", swapFrom, swapTo, amount);
 
 		const basisPoints = license? 16:
@@ -45,13 +49,16 @@ export const getQuotes = async (
 				? 16
 				: 32;
 		
-		let providerGroups = [["MAYACHAIN", "MAYACHAIN_STREAMING", "THORCHAIN", "THORCHAIN_STREAMING", "CHAINFLIP"]];
+		let providerGroups = [["MAYACHAIN", "MAYACHAIN_STREAMING"], ["DORITO"]];//["MAYACHAIN", "MAYACHAIN_STREAMING", "THORCHAIN", "THORCHAIN_STREAMING"]];
+		//choose providers that are not THORCHAIN or MAYACHAIN or Chainflip
+		const doritoProviders = providers.map(p => p.name);
+		console.log("doritoProviders", doritoProviders);
 		const affiliates = [mayaAffiliate, thorAffiliate];	
 		if(thorAffiliate !== mayaAffiliate){
 			providerGroups = [
-				["MAYACHAIN", "MAYACHAIN_STREAMING", "CHAINFLIP"],
-
+				["MAYACHAIN", "MAYACHAIN_STREAMING"],
 				["THORCHAIN", "THORCHAIN_STREAMING"],
+				["DORITO"],
 			];
 		}
 
@@ -59,24 +66,57 @@ export const getQuotes = async (
 		//https://mayanode.mayachain.info/mayachain/quote/swap?from_asset=XRD.XRD&to_asset=MAYA.CACAO&amount=2000000000&destination=maya1jpvhncl60k5q3dljw354t0ccg54j3pkjcag9ef&affiliate_bps=44&affiliate=cs
 		//}
 
+		const sellAsset =// (swapFrom.symbol)?  swapFrom.chain + "." + swapFrom.symbol:
+						 swapFrom.identifier;
+		const buyAsset = //(swapTo.symbol)? swapTo.chain + "." + swapTo.symbol: 
+						swapTo.identifier;
+		const { assetValue } = await getAssetValue(swapFrom, amount);
+
+
+		//if numchunks is a biginteger, convert to number
+		numChunks = numChunks ? (typeof numChunks === 'bigint' ? Number(numChunks) : numChunks) : 1;
+		chunkIntervalBlocks = chunkIntervalBlocks ? (typeof chunkIntervalBlocks === 'bigint' ? Number(chunkIntervalBlocks) : chunkIntervalBlocks) : 20;
+		
+
 		const quotesParams = providerGroups.map((providerGroup, index) => {
 			const affiliate = affiliates[index];
 			const swapKitQuoteParams = {
-				sellAsset: swapFrom.chain + "." + swapFrom.symbol,
-				buyAsset: swapTo.chain + "." + swapTo.symbol,
+				sellAsset: sellAsset,
+				buyAsset: buyAsset,
 				sellAmount: parseFloat(amount).toString(),
+				assetValue,
 				sourceAddress: chooseWalletForToken(swapFrom, wallets)?.address,
 				destinationAddress: thisDestinationAddress,
 				affiliateFee: basisPoints,
 				affiliate: affiliate,
 				slippage: slippage,
 				providers: providerGroup,
+				streaming_interval: chunkIntervalBlocks || undefined,
+				streaming_quantity: numChunks || undefined,
 			};
 			return swapKitQuoteParams;
 		});
 
-		console.log("AssetValue", swapFrom.identifier, swapTo.identifier);
+		console.log("AssetValue", swapFrom, amount);
 
+
+		const chainflipQuoteParams = {
+			sellAsset: swapFrom,
+			buyAsset: swapTo,
+			sellChain: swapFrom.chain,
+			buyChain: swapTo.chain,
+			assetValue,
+			slippage: slippage || 1,
+			sourceAddress: chooseWalletForToken(swapFrom, wallets)?.address,
+			destinationAddress: thisDestinationAddress,
+			affiliateBasisPoints: basisPoints.toString(),
+			numChunks: numChunks || 1,
+			chunkIntervalBlocks: chunkIntervalBlocks || 20,
+		};
+
+		console.log("chainflipQuoteParams", chainflipQuoteParams);
+
+		// const mayaSwapQuoteParams = {
 		// const thorSwapQuoteParams = {
 		// 	sellAsset: swapFrom.identifier,
 		// 	sellAmount: amount,
@@ -87,10 +127,77 @@ export const getQuotes = async (
 		// 	affiliateBasisPoints: basisPoints.toString(),
 		// 	affiliateAddress: "be",
 		// };
+		const doneProviders = [];
 
 		const quoteFuncs = quotesParams.map((quoteParams) => {
-			return () => getQuoteFromSwapKit(quoteParams);
+			console.log("quoteParams", quoteParams);
+			if (quoteParams.providers.some(p => p === "THORCHAIN" || p === "THORCHAIN_STREAMING")) {
+				// Create two separate Thorchain quote requests
+				return async () => {
+					const [normalQuote, streamingQuote] = await Promise.all([
+						// Normal quote
+						getQuoteFromThorchainDirect({
+							...quoteParams,
+							streaming_interval: 0,
+							streaming_quantity: 0
+						}),
+						// Streaming quote
+						getQuoteFromThorchainDirect({
+							...quoteParams,
+							streaming_interval: 1,
+							streaming_quantity: 0 // Let THORChain determine optimal chunks
+						})
+					]);
+
+					 // Calculate USD values for each route using total amount
+					 const calculateUSDValue = (route) => {
+						const totalOutput = Number(route.expectedBuyAmount);
+						// Total fees in the output asset
+						const totalFees = (Number(route.fees.affiliate) + 
+										 Number(route.fees.outbound) + 
+										 Number(route.fees.liquidity)) / 1e8;
+						
+						const totalValue = totalOutput + totalFees;
+						// Get USD price from thorchain quote data
+						const assetPrice = route.thorchainQuote.fees?.asset_price || 1;
+						return totalValue * assetPrice;
+					  };
+					  doneProviders.push("THORCHAIN");
+					  doneProviders.push("THORCHAIN_STREAMING");
+					// Combine both quotes into one response
+					return {
+						quoteId: normalQuote.quoteId,
+						routes: [
+							{
+								...normalQuote.routes[0],
+								providers: ["THORCHAIN"],
+								expectedOutputUSD: calculateUSDValue(normalQuote.routes[0])
+							},
+							{
+								...streamingQuote.routes[0],
+								providers: ["THORCHAIN_STREAMING"],
+								streamingSwap: true,
+								expectedOutputUSD: calculateUSDValue(streamingQuote.routes[0])
+							}
+						]
+					};
+				};
+			}else if(quoteParams.providers.some(p => p === "MAYACHAIN" || p === "MAYACHAIN_STREAMING")){
+				return () => getQuoteFromMaya(quoteParams, swapTo, swapFrom);
+
+			}else if(quoteParams.providers.some(p => p === "DORITO")){
+				// Remove done providers from SwapKit providers
+				quoteParams.providers = doritoProviders.filter(p => !doneProviders.includes(p));
+				//filter out chainflip from providers
+				quoteParams.providers = quoteParams.providers.filter(p => p !== "CHAINFLIP");
+				return () => getQuoteFromDoritoKit(quoteParams);
+				
+			}
 		});
+
+		//add chainflip to the list of quotes
+		
+		quoteFuncs.push(() => getQuoteFromChainflip(chainflipQuoteParams));
 
 		let retry = false;
 
@@ -133,9 +240,8 @@ export const getQuotes = async (
 						}
 					});
 				}
-				if (response.status === "fulfilled") {
+				if (response.status === "fulfilled" && response.value?.routes) {
 					console.log("response", response);
-					
 					const routes =	processSwapKitRoutes(response.value, swapTo.decimals)
 					swapKitRoutes = swapKitRoutes.concat(routes);
 				}
@@ -157,6 +263,7 @@ export const getQuotes = async (
 			const combinedRoutes = [...swapKitRoutes];
 
 			if (combinedRoutes.length === 0) {
+				setRoutes([]);
 				throw new Error("No routes from any source.");
 			}
 			console.log("combinedRoutes", combinedRoutes);
@@ -316,6 +423,8 @@ export const getQuotes = async (
 			}
 			setQuoteStatus("Error getting quotes: " + error.message);
 		}
+	}else{
+		console.log("No quotes needed", oSwapFrom, swapTo, amount, destinationAddress, slippage, setStatusText, setQuoteStatus, setRoutes, chooseWalletForToken, tokens, setDestinationAddress, setSelectedRoute, wallets, selectedRoute, license, setReportData, iniData, thorAffiliate, mayaAffiliate, setThorAffiliate, setMayaAffiliate, numChunks, chunkIntervalBlocks, providers);
 	}
 };
 
@@ -324,6 +433,47 @@ const processSwapKitRoutes = (response, swapToDecimals) => {
 	const quoteid = response.quoteId;
 	routes.forEach((route) => {
 		route.quoteId = quoteid;
+		
+		// Handle fees structure
+		if (Array.isArray(route.fees)) {
+			route.gasFee = route.gasFee || route.fees.find((fee) => fee.type === "inbound")?.amount;
+		} else if (typeof route.fees === 'object') {
+			route.gasFee = route.fees?.gas?.estimated || route.gasFee;
+		}
+
+		// Normalize streaming parameters
+		if (route.providers.some(p => p.includes('_STREAMING'))) {
+			route.streamingSwap = true;
+			 // Handle SwapKit streaming parameters
+			if (route.meta?.streamingInterval) {
+				route.streamingBlocks = route.meta.streamingInterval;
+				route.streamingQuantity = route.meta.maxStreamingQuantity || 0;
+			}
+			// Check memo for streaming params (Maya/Thor format)
+			else if (route.memo) {
+				const memoMatch = route.memo.match(/(\d+)\/(\d+)\/(\d+)/);
+				if (memoMatch) {
+					route.streamingQuantity = parseInt(memoMatch[2]) || 0;
+					route.streamingBlocks = parseInt(memoMatch[3]) || 0;
+				}
+			}
+			// Add total duration for UI
+			route.estimatedTime = route.estimatedTime?.total || 
+								Object.values(route.estimatedTime || {}).reduce((a, b) => a + b, 0);
+		} else if (route.cfQuote?.type === 'DCA') {
+			// Handle Chainflip DCA format
+			route.streamingSwap = true;
+			route.streamingBlocks = route.cfQuote.dcaParams?.chunkIntervalBlocks || 0;
+			route.streamingQuantity = route.cfQuote.dcaParams?.numberOfChunks || 0;
+			route.estimatedTime = route.cfQuote.estimatedDurationSeconds;
+		} else {
+			route.streamingSwap = false;
+			route.streamingBlocks = 0;
+			route.streamingQuantity = 1;
+			route.estimatedTime = route.estimatedTime?.total || 0;
+		}
+
+		// Rest of memo handling
 		if (route.memo && (route.providers.includes("MAYACHAIN") || route.providers.includes("MAYACHAIN_STREAMING"))){
 			route.originalMemo = route.memo;
 			const parts = route.memo.split(":");

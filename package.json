@@ -1,15 +1,19 @@
 {
   "name": "winbit32",
-  "version": "1.0a",
+  "version": "1.5.3",
   "private": false,
   "homepage": "https://winbit32.com",
   "dependencies": {
     "@babel/plugin-proposal-private-property-in-object": "^7.21.11",
+    "@bufbuild/protobuf": "^1.10.0",
+    "@chainflip/sdk": "^1.6.7-rc.3",
+    "@doritokit/sdk": "^2.2.17",
     "@fortawesome/fontawesome-svg-core": "^6.6.0",
     "@fortawesome/free-brands-svg-icons": "^6.6.0",
     "@fortawesome/free-regular-svg-icons": "^6.6.0",
     "@fortawesome/free-solid-svg-icons": "^6.6.0",
     "@fortawesome/react-fontawesome": "^0.2.2",
+    "@noble/hashes": "1.6.1",
     "@noble/secp256k1": "^2.1.0",
     "@radixdlt/account": "^3.0.14",
     "@radixdlt/babylon-core-api-sdk": "^1.2.0",
@@ -17,14 +21,14 @@
     "@radixdlt/radix-dapp-toolkit": "^2.0.3",
     "@radixdlt/radix-engine-toolkit": "^1.0.5",
     "@scure/bip39": "^1.2.1",
-    "@solana/spl-token-registry": "^0.2.4574",
     "@swapkit/plugin-chainflip": "^1.0.0-rc.72",
-    "@swapkit/sdk": "^1.1.8",
+    "@swapkit/sdk": "^2.0.4",
     "@swapkit/tokens": "nightly",
     "@swapkit/toolbox-radix": "^1.0.0-rc.5",
     "@swapkit/toolbox-substrate": "^1.0.0-rc.42",
     "@toruslabs/eccrypto": "^5.0.4",
     "@toruslabs/tss-lib": "^2.3.0",
+    "@trpc/server": "^10.45.2",
     "@walletconnect/modal-auth-react": "^2.6.2",
     "@walletconnect/modal-core": "^2.6.2",
     "@walletconnect/modal-sign-html": "^2.6.2",
@@ -55,6 +59,7 @@
     "lodash": "^4.17.21",
     "lz-string": "^1.5.0",
     "mathjs": "^12.4.2",
+    "micro-key-producer": "^0.7.2",
     "path-browserify": "^1.0.1",
     "pnpm": "^9.2.0",
     "qrcode.react": "^3.1.0",
@@ -72,31 +77,34 @@
     "readable-stream": "^4.5.2",
     "secp256k1": "^5.0.0",
     "shamirs-secret-sharing": "^2.0.0",
+    "source-map-explorer": "^2.5.3",
     "source-map-loader": "^5.0.0",
     "stream-browserify": "^3.0.0",
     "styled-components": "^6.1.12",
+    "tweetnacl": "^1.0.3",
     "typescript": "^5.6.2",
     "vm-browserify": "^1.1.2",
     "web-vitals": "^2.1.4",
     "webpack": "^5.88.1",
     "webpack-cli": "^4.9.0",
+    "xlsx": "^0.18.5",
     "yarn": "^1.22.19"
   },
+  "overrides": {
+    "@noble/hashes": "1.6.1"
+  },
   "scripts": {
-    "predeploy": "react-app-rewired build",
+    "predeploygit": "react-app-rewired build",
     "predeploydev": "react-app-rewired build",
-    "deploy": "gh-pages -d build -b main --remote upstream",
+    "deploy": "BUILD_PATH='/var/www/winbit32' react-app-rewired build",
+    "deploygit": "gh-pages -d build -b main --remote upstream",
+    "deploybuilt": "gh-pages -d build -b main --remote upstream",
     "deploydev": "gh-pages -d build -b Dev",
     "start": "react-app-rewired start",
     "build": "react-app-rewired build",
     "test": "react-app-rewired test",
-    "eject": "react-scripts eject"
-  },
-  "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest"
-    ]
+    "eject": "react-scripts eject",
+    "analyze": "source-map-explorer 'build/static/js/*.js'"
   },
   "browserslist": {
     "production": [
@@ -111,13 +119,18 @@
     ]
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.2.0",
+    "@testing-library/user-event": "^14.6.1",
     "buffer": "^6.0.3",
+    "identity-obj-proxy": "^3.0.0",
+    "jest": "^29.7.0",
     "process": "^0.11.10",
     "react-app-rewired": "^2.2.1",
     "webpack-dev-server": "^4.3.1",
     "webpack-target-webextension": "^1.1.2"
   },
   "target": [
-    "browserslist:modern"
+    "browserslist:ES2023"
   ]
 }

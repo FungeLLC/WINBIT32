@@ -59,6 +59,19 @@ const Paintbrush = ({ onMenuAction, windowA, windowId, handleOpenArray }) => {
 		}
 	}, [onMenuAction, windowA, menu]);
 
+	useEffect(() => {
+		if (canvasUrl) {
+			const canvas = canvasRef.current;
+			const context = contextRef.current;
+			const image = new Image();
+			image.onload = () => {
+				context.drawImage(image, 0, 0, canvas.width, canvas.height);
+			};
+			image.src = canvasUrl;
+		}
+	}, [windowA]);
+
+
 	const handleMenuClick = (action) => {
 		const canvas = canvasRef.current;
 		switch (action) {
@@ -340,6 +353,7 @@ const Paintbrush = ({ onMenuAction, windowA, windowId, handleOpenArray }) => {
 							<div className="dialog-field">
 								<textarea value={generatedPhrase} readOnly style={{ width: '100%', height: '100px', textAlign: 'justify' }} />
 							</div>
+							<div>Images can change due to compression etc. Always keep a backup of the phrase as text or a key.</div>
 							<div style={{ display: 'flex', justifyContent: 'center' }}>
 								<button className='swap-toolbar-button' onClick={() => {
 									openWinbit(generatedPhrase)

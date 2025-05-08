@@ -12,9 +12,11 @@ import { useWindowData } from './includes/WindowContext';
 import './styles/scrollbar.css';
 
 import { createNewWindow, convertObjectFunctions } from './includes/WindowManagerFunctions';
+import _, { set } from 'lodash';
+import { e } from 'mathjs';
 
-const WindowManager = ({ programs, windowName, windowId, handleOpenFunction, setStateAndSave, providerKey, setWindowMenu, programData, 
-	setProgramData, handleOpenArray, handleExit, appData = {}, hashPath = [], sendUpHash = () => {}, inContainer }) => {
+const WindowManager = ({ programs, windowName, windowId, windowA, handleOpenFunction, setStateAndSave, providerKey, setWindowMenu, programData, 
+	setProgramData, handleOpenArray, handleExit, appData = {}, hashPath = [], sendUpHash = () => {}, inContainer, onOpenWindow = () => {} }) => {
 
 	const updatedState = {
 		windowName,
@@ -24,7 +26,7 @@ const WindowManager = ({ programs, windowName, windowId, handleOpenFunction, set
 	const [state, dispatch, getState] = useIsolatedReducer(windowName, 'windowManagerState', reducer, updatedState);
 	const { windows, minimizedWindows, contextMenuVisible, contextMenuPosition, highestZIndex, windowHistory, programList, closedWindows } = state;
 
-	const { embedMode } = appData;
+	const { embedMode, setShowMatrix } = appData;
 
 	const contextWindowId = useIsolatedRef(windowName, 'contextWindowId', null);
 	const defaultProgramsInitialized = useIsolatedRef(windowName, 'defaultProgramsInitialized', false);
@@ -33,9 +35,10 @@ const WindowManager = ({ programs, windowName, windowId, handleOpenFunction, set
 	const { setWindowContent } = useWindowData();
 
 	const hashPathRef = useRef(hashPath);
-	const downstreamHashes = useRef({});
 	
+	const downstreamHashes = useRef({});
 
+	
 
 	useEffect(() => {
 		if (highestZIndex !== highestZIndexRef.current) highestZIndexRef.current = highestZIndex;
@@ -61,6 +64,7 @@ const WindowManager = ({ programs, windowName, windowId, handleOpenFunction, set
 	useEffect(() => {
 		window.document.body.style.cursor = 'default';
 		window.document.body.classList.remove('wait');
+		window.waitingFor = null;
 
 		if (setWindowMenu) {
 			const windowMenu = windows.map(window => ({
@@ -90,9 +94,16 @@ const WindowManager = ({ programs, windowName, windowId, handleOpenFunction, set
 		dispatch({ type: 'MINIMIZE_WINDOW', payload: window });
 	}, [dispatch]);
 
-	const bringToFront = useCallback((windowId) => {
-		console.log('bringToFront called with windowID:', windowId);
-		downstreamHashes.current[windowId] = [];
+	const bringToFront = useCallback((windowId, hasChildrenWindows = false) => {
+		//console.log('bringToFront called with windowID:', windowId);
+		//check if the window is already at the front
+
+		console.log('bringToFront called with windowID:', windowId, hasChildrenWindows, downstreamHashes.current[windowId], getCurrentFrontWindow.id);
+
+		if (getCurrentFrontWindow.id === windowId) return;
+		if (!hasChildrenWindows){
+			downstreamHashes.current[windowId] = [];
+		}
 		dispatch(HandleFunctions.bringToFront(windowId));
 	}, [dispatch]);
 
@@ -135,6 +146,11 @@ const WindowManager = ({ programs, windowName, windowId, handleOpenFunction, set
 					break;
 				case 'maximize':
 					maximizeWindow(window);
+					break;
+				case 'screensaver':
+					if(setShowMatrix){
+						setShowMatrix(true);
+					}
 					break;
 				default:
 					console.log('Unknown action');
@@ -185,32 +201,37 @@ const WindowManager = ({ programs, windowName, windowId, handleOpenFunction, set
 			const loadedWindows = loadWindowState(windowName);
 			const initialWindows = initializeWindows(programs);
 
-			if (!defaultProgramsInitialized.current && (!windows || windows.length === 0)) {
-				if (loadedWindows) {
-					dispatch({ type: 'SET_WINDOWS', payload: Array.isArray(loadedWindows) ? loadedWindows : [] });
-				} else {
-					dispatch({ type: 'SET_WINDOWS', payload: initialWindows.windows });
-					dispatch({ type: 'SET_HIGHEST_Z_INDEX', payload: initialWindows.highestZIndex });
+			if (!defaultProgramsInitialized.current) {
+
+				if (!windows || windows.length === 0){
+					if (loadedWindows) {
+						dispatch({ type: 'SET_WINDOWS', payload: Array.isArray(loadedWindows) ? loadedWindows : [] });
+					} else {
+						dispatch({ type: 'SET_WINDOWS', payload: initialWindows.windows });
+						dispatch({ type: 'SET_HIGHEST_Z_INDEX', payload: initialWindows.highestZIndex });
+					}
+
+					const progs = getPrograms();
+					const mappedPrograms = progs.map(program => ({
+						...program,
+						onStateChange: program.onStateChange ? handleStateChange : undefined,
+					}));
+
+					programs.forEach(program => convertObjectFunctions(program, functionMap));
+					dispatch({ type: 'SET_PROGRAM_LIST', payload: mappedPrograms });
+					dispatch({ type: 'SET_PROGRAMS', payload: programs });
+
+					const defaultPrograms = programs.filter(program => program.defaultOpen);
+					defaultPrograms.forEach(program => handleOpenWindow(program, {}, false));
+					console.log('Default programs initialized:', defaultPrograms);
 				}
 
-				const progs = getPrograms();
-				const mappedPrograms = progs.map(program => ({
-					...program,
-					onStateChange: program.onStateChange ? handleStateChange : undefined,
-				}));
+				console.log('hashPath:', hashPath, hashPathRef.current, windowA);
 
-				programs.forEach(program => convertObjectFunctions(program, functionMap));
-				dispatch({ type: 'SET_PROGRAM_LIST', payload: mappedPrograms });
-				dispatch({ type: 'SET_PROGRAMS', payload: programs });
-
-				const defaultPrograms = programs.filter(program => program.defaultOpen);
-				defaultPrograms.forEach(program => handleOpenWindow(program, {}, false));
-				console.log('Default programs initialized:', defaultPrograms);
-
-
-				if(hashPathRef.current.length){
+				if (hashPathRef.current.length && (!windowA || !windowA.invisibleToHash)){
 					//Pop the first element from the array and open the window
 					const progName = hashPathRef.current.shift().split('~');
+					console.log('progName:', progName);
 					if(progName.length > 1){
 						//open the window with the metadata
 						const metadata = JSON.parse(atob(progName[1]));
@@ -257,45 +278,70 @@ const WindowManager = ({ programs, windowName, windowId, handleOpenFunction, set
 
 		//receive hash from child window, add to hashParts and send up
 	const _sendUpHash = (hash, _windowId) => {
-		//get our current front window and add to hash
 		const frontWindow = getCurrentFrontWindow;
 
-		if (frontWindow ){
-			//console.log('frontWindow:', frontWindow.id, _windowId, windowId);
+		if (!frontWindow) {
+			console.log('No front window, sending up hash:', hash, windowA);
+			// If no front window and we're invisible to hash, don't propagate
+			if (windowA?.invisibleToHash) {
+				return;
+			}
+			// If we have a windowA but no front window, send just our program name
+			if (windowA) {
+				sendUpHash([windowA.progName], windowId);
+			}
+			return;
+		}
+
+		// Store the incoming hash from the child window
+		if (_windowId) {
 			downstreamHashes.current[_windowId] = hash.slice();
+		}
+		if(frontWindow.id === windowId){
+
+			// Get the hashes from our current front window
 			const _hash = hash.slice();
-			//console.log('frontWindow...', frontWindow);
-			_hash.push(frontWindow.progName); 
-			sendUpHash(_hash, windowId);
-			
-		}else{
-			// console.log('No front window', frontWindow, windowId, _windowId);
-			//downstreamHashes.current[_windowId].push('');
+
+			// Only add our window's program name if it's visible to hash
+			if (!frontWindow.invisibleToHash) {
+				_hash.push(frontWindow.progName.replace('.exe', ''));
+			}
+
+			// Don't propagate if we hit the program manager
+			if (!_hash.includes('progman')) {
+				sendUpHash(_hash, windowId);
+			}
 		}
 	}
-			
-	
+
 	useEffect(() => {
 		const frontWindow = getCurrentFrontWindow;
-		if (frontWindow){
-			//check if we are the front window
-
-			// console.log('frontWindow:', frontWindow);
-			const hashes = downstreamHashes.current[frontWindow.id]?.slice() || [];
-			// console.log('hashes:', hashes, frontWindow.windowId, windowId);
-			//send with the front window but don't add to downstreamHashes
-			hashes.push(frontWindow.progName);
-			sendUpHash(hashes, windowId);	
+		if (!frontWindow) {
+			return;
 		}
-	}
-	, [getCurrentFrontWindow, sendUpHash, windowId]);
+
+		// Get stored hashes from the current front window
+		const hashes = downstreamHashes.current[frontWindow.id]?.slice() || [];
+		
+		// Only send up the chain if this window is visible to hash
+		if (!frontWindow.invisibleToHash) {
+			const updatedHashes = [...hashes];
+			updatedHashes.push(frontWindow.progName.replace('.exe', ''));
+			sendUpHash(updatedHashes, windowId);
+		} else {
+			// If invisible, just pass through any downstream hashes
+			sendUpHash(hashes, windowId);
+		}
+	}, [getCurrentFrontWindow, sendUpHash, windowId]);
 
 
 
 	return (
 		<>
 			<div className="window-manager">
-				{Array.isArray(windows) && windows.map(window => {
+				{Array.isArray(windows) && [...windows]
+					.sort((a, b) => b.zIndex - a.zIndex) // Changed sort order to show highest zIndex first
+					.map(window => {
 					if (closedWindows.includes(window.windowId)) {
 						return null; // Skip rendering closed windows
 					}
@@ -336,7 +382,11 @@ const WindowManager = ({ programs, windowName, windowId, handleOpenFunction, set
 								}
 							}}
 							onClose={() => closeWindow(window)}
-							onClick={() => bringToFront(window.windowId)}
+							onClick={(e) => bringToFront(window.windowId, e)}
+							onDoubleClick={(e) => {
+								e.stopPropagation();
+								bringToFront(window.windowId);
+							}}
 							onContextMenu={(position) => handleContextMenu(position, window.windowId)}
 							minimised={window.minimized}
 							maximised={window.maximized}
@@ -346,6 +396,7 @@ const WindowManager = ({ programs, windowName, windowId, handleOpenFunction, set
 							appData={appData}
 							isActiveWindow={getCurrentFrontWindow.id === window.id}
 							metadata={window.metadata}
+							windowA={window}
 						>
 							{window.menu && (
 								<MenuBar
@@ -365,6 +416,8 @@ const WindowManager = ({ programs, windowName, windowId, handleOpenFunction, set
 									)}
 									<div className="window-content">
 										<window.component
+											onClick={(e) => bringToFront(window.windowId, e)}
+
 											key={windowName + '_component_' + _windowId}
 											windowId={window.windowId}
 											windowName={window.progName.replace('.exe', '') + '-' + _windowId}
@@ -386,9 +439,11 @@ const WindowManager = ({ programs, windowName, windowId, handleOpenFunction, set
 											setProgramData={setProgramData}
 											appData={appData}
 											onOpenWindow={handleOpenWindow}
+											parentOnOpenWindow={onOpenWindow}
 											handleExit={handleExit}
 											hashPath={hashPathRef.current}
 											sendUpHash={_sendUpHash}
+
 										/>
 									</div>
 								</>
@@ -410,6 +465,7 @@ const WindowManager = ({ programs, windowName, windowId, handleOpenFunction, set
 						{ label: 'Restore', shortcut: 'R' },
 						{ label: 'Minimize', shortcut: 'N' },
 						{ label: 'Maximize', shortcut: 'X' },
+						{ label: 'Screensaver', shortcut: 'S' },
 					]}
 					position={contextMenuPosition}
 					onAction={handleContextMenuAction}

@@ -34,7 +34,7 @@ const getWalletMethodsForChain = async ({
 			}
 
 			const { getProvider, ETHToolbox, AVAXToolbox, BSCToolbox } = await import(
-				"@thorswap-lib/toolbox-evm"
+				"@swapkit/toolbox-evm"
 			);
 
 			const hdNode = HDNode.fromMnemonic(phrase);

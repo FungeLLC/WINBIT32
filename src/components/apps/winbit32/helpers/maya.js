@@ -44,25 +44,21 @@ export async function getQuoteFromMaya(quoteParams, swapTo, swapFrom){
 		// 	//  providers: ["MAYACHAIN"],
 		// };
 
-	if(swapFrom.identifier !== "XRD.XRD")
-		{
-			return [];
-		}
-
 	const fetch = require("fetch-retry")(global.fetch);
 
 	const apiUrl = "https://mayanode.mayachain.info/mayachain"; // Adjust this URL as needed
 	//convert number strings to numbers
 	const mayaQuoteParams = {
-		from_asset: quoteParams.sellAsset,
-		to_asset: quoteParams.buyAsset,
-		amount: quoteParams.sellAmount,
+		from_asset: swapFrom.identifier,
+		to_asset: swapTo.identifier,
+		amount: quoteParams.assetValue.getBaseValue("string"),
 		destination: quoteParams.destinationAddress,
-		affiliate_bps: quoteParams.affiliateFee,
-		affiliate: quoteParams.affiliate,
+		// affiliate_bps: quoteParams.affiliateFee,
+		// affiliate: quoteParams.affiliate,
+		tollerace_bps: quoteParams.slippage * 100,
 	};
 
-	const response = await fetch(`${apiUrl}/quote/swap`+new URLSearchParams(mayaQuoteParams), {
+	const response = await fetch(`${apiUrl}/quote/swap?`+new URLSearchParams(mayaQuoteParams), {
 		method: "GET",
 		retries: 5,
 		retryDelay: function(attempt, error, response) {

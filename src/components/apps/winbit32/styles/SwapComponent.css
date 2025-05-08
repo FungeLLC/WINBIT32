@@ -22,6 +22,17 @@
      
 }
 
+
+.edit-mode {
+  max-width: 600px;
+  padding: 10px;
+}
+
+.edit-mode .swap-form {
+  border: none;
+  box-shadow: none;
+}
+
 .field-group {
   display: flex;
   align-items: center;
@@ -39,6 +50,7 @@
   /* Label width */
   max-width: 100%;
   margin-right: 10px;
+
 }
 
 .field-group button,
@@ -51,6 +63,9 @@
   /* Minimum width of inputs and button */
   margin-right: 5px;
   /* Spacing between elements */
+   overflow: hidden;
+   text-overflow: ellipsis;
+
 }
 
 @media (max-width: 300px) {

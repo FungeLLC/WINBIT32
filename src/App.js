@@ -9,9 +9,8 @@ import { SKClientProviderManager } from "./components/contexts/SKClientProviderM
 import { Toaster } from "react-hot-toast";
 import { StateSetterProvider } from "./components/contexts/SetterContext";
 import "./styles/win95.css";
-import { has, pad } from "lodash";
-import { hash } from "@radixdlt/radix-engine-toolkit";
-import { embed } from "bitcoinjs-lib/src/payments";
+import { AssetValue } from "@swapkit/helpers";
+import Matrix from "./components/win/Matrix";
 
 const programs = getPrograms();
 
@@ -31,8 +30,13 @@ const App = () => {
 	const [loaded, setLoaded] = useState(false);
 	const [license, setLicense] = useState(false);
 	const [appData, setAppData] = useState({});
+	const [showMatrix, setShowMatrix] = useState(false);
+
 	const hashPathRef = useRef(null);
 
+	console.log('window', window);
+
+	AssetValue.loadStaticAssets();
 
 					// }
 
@@ -74,6 +78,7 @@ const App = () => {
 
 		//get hash, split by /, if the first one begins ~ then set option with it then remove it
 		const hash = window.location.hash;
+
 		if(!hash){
 			hashPathRef.current = [];
 		}else{
@@ -107,7 +112,7 @@ const App = () => {
 			const rHashParts = hashParts.slice().reverse();
 			//console.log("Got Hash Parts:", hashParts);
 			let newHash = hashParts.length ? `#${rHashParts.join("/")}` : "";
-			if( newHash === "#progman.exe"){
+			if( newHash === "#progman"){
 				newHash = "";
 			}
 			//console.log("Setting hash to...", newHash);
@@ -127,9 +132,9 @@ const App = () => {
 		setAppDataKey("setAppDataKey", setAppDataKey);
 		setAppDataKey("license", license);
 		setAppDataKey("setLicense", setLicense);
-
+		setAppDataKey("setShowMatrix", setShowMatrix);
 	}
-	, [setAppData, license]);
+	, [setAppData, license, setShowMatrix]);
 
 
 	const { embedMode } = appData || {};
@@ -144,32 +149,34 @@ const App = () => {
 				{showDOSPrompt ? (
 					<DOSPrompt />
 				) : (
-					<>{hashPathRef.current !== null && (
-						<div
-							style={loaded ? { zIndex: 999 } : { zIndex: 0 }}
-							className="full-desktop"
-							id="desktop">
-							<WindowDataProvider>
-								<WindowManager
-									programs={programs}
-									windowName={"desktop"}
-									setStateAndSave={setStateAndSave}
-									providerKey={"desktop"}
-									handleOpenArray={[]}
-									handleExit={handleExit}
-									sendUpHash={sendUpHash}
-									windowId={"desktop"}
-									hashPath={hashPathRef.current}
-									appData={appData}
-								/>
-							</WindowDataProvider>
-						</div>
-					)}
+					<>
+						{hashPathRef.current !== null && (
+							<div
+								style={loaded ? { zIndex: 999 } : { zIndex: 0 }}
+								className="full-desktop"
+								id="desktop">
+								<WindowDataProvider>
+									<WindowManager
+										programs={programs}
+										windowName={"desktop"}
+										setStateAndSave={setStateAndSave}
+										providerKey={"desktop"}
+										handleOpenArray={[]}
+										handleExit={handleExit}
+										sendUpHash={sendUpHash}
+										windowId={"desktop"}
+										hashPath={hashPathRef.current}
+										appData={appData}
+									/>
+								</WindowDataProvider>
+							</div>
+						)}
 						{loaded ? (
-							!embedMode &&
-							<>
-								<WelcomeWarning onExit={handleExit} />
-							</>
+							!embedMode && (
+								<>
+									<WelcomeWarning onExit={handleExit} />
+								</>
+							)
 						) : (
 							<div
 								className="loading_overlay"
@@ -194,7 +201,6 @@ const App = () => {
 					containerStyle={{
 						zIndex: 999000000000000000,
 					}}
-
 					toastOptions={{
 						// Define default options
 						className: "toast",
@@ -204,6 +210,7 @@ const App = () => {
 						},
 					}}
 				/>
+				<Matrix show={showMatrix} onHide={() => setShowMatrix(false)} />
 			</StateSetterProvider>
 		</SKClientProviderManager>
 	);

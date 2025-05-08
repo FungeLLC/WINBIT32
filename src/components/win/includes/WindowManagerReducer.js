@@ -1,3 +1,5 @@
+import { re } from "mathjs";
+
 export const initialState = {
 	windows: [],
 	minimizedWindows: [],
@@ -59,6 +61,16 @@ export const reducer = (state, action) => {
 				programs: Array.isArray(action.payload) ? action.payload : [],
 			};
 		case "ADD_WINDOW":
+			if (action.payload.minimized) {
+				return {
+					...state,
+					windows: [
+						...state.windows,
+						action.payload,
+					],
+					minimizedWindows: [...state.minimizedWindows, action.payload],
+				};
+			}
 			return { ...state, windows: [...state.windows, action.payload] };
 		case "MINIMIZE_WINDOW":
 			return {

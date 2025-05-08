@@ -1,8 +1,21 @@
 import React from 'react';
 import { useMemo, useCallback, useEffect, useState } from 'react';
 import DialogBox from '../win/DialogBox';
+import { useIsolatedState } from '../win/includes/customHooks';
+import WindowManager from '../win/WindowManager';
 
-const ProgramManager = ({ params, programs, onOpenWindow, onMenuAction, windowA, handleExit}) => {
+const ProgramManager = ({ params, programs, onOpenWindow, onMenuAction, windowA, handleExit, subPrograms, windowId, windowName,
+		setStateAndSave,
+	providerKey,
+	setWindowMenu,
+	programData,
+	setProgramData,
+	handleOpenArray,
+	onWindowDataChange,
+	parentOnOpenWindow,
+	initialSubWindows,
+	...rest
+}) => {
 
 	const [showAboutDialog, setShowAboutDialog] = useState(false);
 
@@ -61,22 +74,47 @@ const ProgramManager = ({ params, programs, onOpenWindow, onMenuAction, windowA,
 	}, []);
 
 
+
+	// Filter out "Desk" itself to avoid recursion
+	const [currentSubWindows, setCurrentSubWindows] = useIsolatedState(windowId, 'subWindows', subPrograms.filter((p) => p.progName !== 'desk.exe'));
+	const [handleSubProgramClick, setHandleSubProgramClick] = useState(() => { });
+
+
+
+	const handleSetSubProgramClick = useCallback((handle) => {
+		setHandleSubProgramClick(() => handle);
+	}, []);
+
+	useEffect(() => {
+		setCurrentSubWindows(initialSubWindows);
+	}, [initialSubWindows, setCurrentSubWindows]);
+
+	useEffect(() => {
+		setCurrentSubWindows(subPrograms.filter((p) => p.progName !== 'desk.exe'));
+		console.log('SubPrograms:', subPrograms);
+	}, [subPrograms]);
+
 	return (
 		<>
-		<div className="program-manager" style={{ display: 'flex', flexWrap: 'wrap' }}>
-			{/* Map through programs and display an icon for each, filtering out progID == 0 */}
-			{programs.filter(program => program.progID !== 0 && program.menuOnly !== true ).map((program, index) => (
-				<div
-					key={index}
-					className="program-icon"
-					style={{ width: '95px', padding: '10px', textAlign: 'center' }}
-					onClick={() => onOpenWindow(program,{}, true)} // Handle icon click to open a window
-				>
-					<div style={{ fontSize: '2em' }}>{program.icon}</div> {/* Display the icon */}
-					<div style={{marginTop: '5px'}}>{program.title}</div> {/* Display the program name */}
+
+				<div className={`sub-window-area-${windowId}`}>
+					<WindowManager
+						programs={currentSubWindows}
+						windowName={`sub-window-area-${windowName}`}
+						onStateChange={onWindowDataChange}
+						handleOpenFunction={handleSetSubProgramClick}
+						setStateAndSave={setStateAndSave}
+						providerKey={providerKey}
+						setWindowMenu={setWindowMenu}
+						programData={programData}
+						setProgramData={setProgramData}
+						handleOpenArray={handleOpenArray}
+						onOpenWindow={onOpenWindow}
+						windowA={windowA}
+						{...rest}
+					/>
 				</div>
-			))}
-		</div>
+
 		{showAboutDialog &&
 				<DialogBox title="About Winbit32" buttons={[{ label: 'OK', onClick: ()=>setShowAboutDialog(false) }]} onConfirm={() => {
 			setShowAboutDialog(false);

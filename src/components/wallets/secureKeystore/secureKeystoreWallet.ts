@@ -1,34 +1,101 @@
 import {
 	Chain,
+	ChainId,
 	type ConnectWalletParams,
 	DerivationPath,
 	type DerivationPathArray,
 	RPCUrl,
 	type WalletChain,
-	WalletOption,
 	derivationPathToString,
 	ensureEVMApiKeys,
 	setRequestClientConfig,
-} from "@swapkit/helpers";
-import type { DepositParam, TransferParams } from "@swapkit/toolbox-cosmos";
-import { decryptFromKeystore, Keystore } from "@swapkit/wallet-keystore";
+	ChainToChainId
+} from "@doritokit/helpers";
+import { decryptFromKeystore, Keystore } from "@doritokit/wallet-keystore";
 import { mnemonicToSeedSync } from 'bip39';
-import {
-	derivePath as deriveEd25519Path,
-} from 'ed25519-hd-key'
+import { derivePath as deriveEd25519Path } from 'ed25519-hd-key';
 import { HDKey } from "@scure/bip32";
-
 import {
-	RadixEngineToolkit,
 	PrivateKey,
-	NetworkId,
-
 } from "@radixdlt/radix-engine-toolkit";
-import { TransactionBuilder, generateRandomNonce, ManifestBuilder, decimal, address as addressType, bucket, str } from '@radixdlt/radix-engine-toolkit';
-import bigInt from 'big-integer';
-import { mayaRadixRouter } from '../../apps/winbit32/helpers/maya.js'
-import { wbRadixToolbox } from "./winbitRadixToolbox.ts";
+import { ECPairFactory, type ECPairInterface } from "ecpair";
 
+import { wbRadixToolbox } from "../../plugins/winbitRadixToolbox.ts";
+import { HDNodeWallet, getProvider, getToolboxByChain as getToolboxByChainEVM } from "@doritokit/toolbox-evm";
+import { BCHToolbox } from "@doritokit/toolbox-utxo";
+import { getToolboxByChain as getToolboxByChainUTXO } from "@doritokit/toolbox-utxo";
+import { getToolboxByChain as getToolboxByChainCosmos } from "../../toolbox/cosmos/index.ts";
+import { getToolboxByChain as getToolboxByChainSubstrate } from "../../plugins/substrateToolboxFactory.ts";
+import { Network, createKeyring } from "@doritokit/toolbox-substrate";
+
+import { getRadixCoreApiClient, createPrivateKey, RadixMainnet } from "./legacyRadix.ts";
+import { SOLToolbox } from "../../toolbox/solana/toolbox.ts";
+import { createKeysForPath as createSolanaKeysForPath } from "../../toolbox/solana/toolbox.ts";
+import { addDialogOptions } from "./dialogOptions"
+import { Wallet as ethersWallet, Wallet } from "ethers";
+import { getNetwork } from "@swapkit/toolbox-utxo";
+import * as secp256k1 from "@bitcoinerlab/secp256k1";
+
+
+const derivationPathAccountPositions = {
+	SOL: 3,
+};
+
+// Add to existing code at top
+const isPK = (phrase: string) => phrase.trim().split(' ').length === 1;
+
+
+const UTXOcreateKeysForPath = ({
+	phrase,
+	wif,
+	derivationPath,
+	chain,
+}: {
+	phrase?: string;
+	wif?: string;
+	derivationPath: string;
+	chain: Chain;
+}) => {
+	if (!(wif || phrase)) throw new Error("Either phrase or wif must be provided");
+
+	const factory = ECPairFactory(secp256k1);
+	const network = getNetwork(chain);
+
+	// Handle WIF format directly
+	if (wif) return factory.fromWIF(wif, network);
+
+	// Check if phrase is actually a private key
+	if (phrase?.split(' ').length === 1) {
+		return factory.fromPrivateKey(Buffer.from(phrase, 'hex'), { network });
+	}
+
+	// Handle mnemonic phrase
+	const seed = mnemonicToSeedSync(phrase as string);
+	const master = HDKey.fromMasterSeed(seed, network).derive(derivationPath);
+	if (!master.privateKey) throw new Error("Could not get private key from phrase");
+
+	return factory.fromPrivateKey(Buffer.from(master.privateKey), { network });
+};
+
+
+const addIndexToDerivationPath = (chain: Chain, derivationPath: string, index: number) => {
+	const parts = derivationPath.split("/");
+	const accountPosition = derivationPathAccountPositions[chain];
+	if (!accountPosition || parts.length <= accountPosition) {
+		//put it on the end
+		return `${DerivationPath[chain]}/${index}`;
+	}
+	//get part at accountPosition and see if it has a ' at the end
+	const part = parts[accountPosition];
+	let strIndex = index.toString();
+	if (part.endsWith("'")) {
+		strIndex = index + "'";
+	}
+
+	//replace part at accountPosition with strIndex
+	parts[accountPosition] = strIndex;
+	return parts.join("/");
+};
 
 // Internal variables to store the encrypted keystore and the password request function
 let encryptedKeystore: Keystore | null = null;
@@ -55,7 +122,7 @@ type Params = SecureKeystoreOptions & {
 // Function to set the encrypted keystore
 const setEncryptedKeystore = ({ ...params }) => {
 	debugLog("SEKParams", params);
-	return function setEncryptedKeystore(keystore: Keystore | null) {	
+	return function setEncryptedKeystore(keystore: Keystore | null) {
 		encryptedKeystore = keystore;
 	};
 };
@@ -70,17 +137,21 @@ const setPasswordRequestFunction = ({ ...params }) => {
 // Function to prompt for password
 const promptForPassword = () => {
 	return async function promptForPassword(...args: any[]) {
+
 		if (!passwordRequestFunction) {
 			throw new Error("Password request function is not set.");
 		}
-		return passwordRequestFunction(...args);
+
+		const dArgs = addDialogOptions(args);
+
+
+		return passwordRequestFunction(dArgs);
 	};
 };
 
 const debugLog = (message: string, ...args: any[]) => {
 	// console.log(message, ...args);
-}
-
+};
 
 // Utility function to wrap sensitive methods
 const wrapSensitiveMethods = (toolbox: any, wrapMethod: (functionName: string) => Function, sensitiveMethods: string[]) => {
@@ -95,18 +166,17 @@ const wrapSensitiveMethods = (toolbox: any, wrapMethod: (functionName: string) =
 			debugLog(`Wrapped sensitive method: ${key}`);
 		} else {
 			// Copy non-sensitive functions directly
-			if(typeof value === "function"){
+			if (typeof value === "function") {
 				debugLog(`Unwrapped method: ${key}`);
 
 				wrappedToolbox[key] = (...args: any[]) => {
-						debugLog("Calling on UnwrappedToolbox:", key, toolbox, args);
-						return toolbox[key](...args);
+					debugLog("Calling on UnwrappedToolbox:", key, toolbox, args);
+					return toolbox[key](...args);
 				};
-			}else{
+			} else {
 				debugLog(`Unwrapped value: ${key}`);
 				wrappedToolbox[key] = toolbox[key];
 			}
-			
 		}
 	}
 
@@ -116,13 +186,12 @@ const wrapSensitiveMethods = (toolbox: any, wrapMethod: (functionName: string) =
 const getPhrase = async (keystore: Keystore | null, password: string) => {
 	console.log("Keystore", keystore);
 
-	if(keystore){
+	if (keystore) {
 		return await decryptFromKeystore(keystore, password);
-	}else{
+	} else {
 		return password;
 	}
-}
-
+};
 
 const getWalletMethodsForChain = async ({
 	api,
@@ -136,10 +205,14 @@ const getWalletMethodsForChain = async ({
 	derivationPath,
 	stagenet,
 	password,
-	otherOptions = {}
+	otherOptions = {},
 }: Params) => {
 	// Decrypt the phrase once to get the address
-	const phrase = keystore?  await getPhrase(keystore, password) : password;
+	const phrase = keystore ? await getPhrase(keystore, password) : password;
+	const networkOptions = otherOptions['networkOptions'] ? otherOptions['networkOptions'] : {};
+
+	//console.log("OtherOptions", otherOptions);
+
 	let index = otherOptions['index'] ? otherOptions['index'] : 0;
 
 	let address: string;
@@ -154,28 +227,41 @@ const getWalletMethodsForChain = async ({
 		case Chain.Ethereum:
 		case Chain.Optimism:
 		case Chain.Polygon: {
-			const { HDNodeWallet, getProvider, getToolboxByChain } = await import("@swapkit/toolbox-evm");
-
 			const keys = ensureEVMApiKeys({ chain, covalentApiKey, ethplorerApiKey });
+			console.log("EVM Chain preprovider", chain, rpcUrl);
 			const provider = getProvider(chain, rpcUrl);
-			const wallet = HDNodeWallet.fromPhrase(phrase).connect(provider);
-			const params = { ...keys, api, provider, signer: wallet };
+			console.log("EVM Chain postprovider", chain, rpcUrl, provider);
+			const chainId = ChainToChainId[chain];
+
+			console.log("EVM ChainId derivation index", chain, chainId, derivationPath);
+
+			// const cApi = covalentApi({apiKey: covalentApiKey, chainId})
+
+			// console.log("EVM Chain", chain, rpcUrl, provider, keys, phrase);
+
+			const wallet = isPK(phrase)
+				? new ethersWallet(phrase).connect(provider)
+				: HDNodeWallet.fromPhrase(phrase, null, derivationPath).connect(provider);
+			const params = { ...keys, provider, signer: wallet, api };
 
 			address = wallet.address;
 
 			// Get the base toolbox
-			toolbox = getToolboxByChain(chain)(params);
-
+			toolbox = getToolboxByChainEVM(chain)(params);
 			// Specify sensitive methods for EVM chains
 			sensitiveMethods = ['transfer', 'signMessage', 'approve', 'call', 'estimateCall', 'sendTransaction', 'createTransferTx', 'createApprovalTx'];
 
+		
+
 			// Wrap sensitive methods
 			const wrappedToolbox = wrapSensitiveMethods(toolbox, (originalMethodName) => async (...args: any[]) => {
-				const { password }
-					= await passwordRequest({title: "EVM wallet password for " + originalMethodName + " required"}) as { password: string };
+				const { password } = await passwordRequest({ title: "EVM wallet password for " + originalMethodName + " required" }) as { password: string };
 				const phrase = await getPhrase(keystore, password);
-				const wallet = HDNodeWallet.fromPhrase(phrase).connect(provider);
-				const signerToolbox = getToolboxByChain(chain)({ ...keys, api, provider, signer: wallet });	
+				const wallet = isPK(phrase)
+					? new ethersWallet(phrase).connect(provider)
+					: HDNodeWallet.fromPhrase(phrase, null, derivationPath).connect(provider);
+					//console.log("GOT ETHTYPE WALLET", phrase, isPK(phrase), wallet);
+				const signerToolbox = getToolboxByChainEVM(chain)({ ...keys, api, provider, signer: wallet });
 				debugLog("Calling on WrappedToolbox:", originalMethodName, signerToolbox, args);
 				//call originalMethodName on signer
 				return signerToolbox[originalMethodName](...args);
@@ -187,9 +273,14 @@ const getWalletMethodsForChain = async ({
 		}
 
 		case Chain.BitcoinCash: {
-			const { BCHToolbox } = await import("@swapkit/toolbox-utxo");
-			const toolbox = BCHToolbox({ rpcUrl, apiKey: blockchairApiKey, apiClient: api });
-			const keys = await toolbox.createKeysForPath({ phrase, derivationPath });
+
+			//if phrase is just one word (private key) skip this chain.
+			if (isPK(phrase)) {
+				throw new Error("Private key not supported for BitcoinCash");
+			}
+
+			toolbox = BCHToolbox({ rpcUrl, apiKey: blockchairApiKey, apiClient: api });
+			const keys = await toolbox.createKeysForPath({ phrase, derivationPath, chain });
 			address = toolbox.getAddressFromKeys(keys);
 
 			// Specify sensitive methods for BitcoinCash
@@ -198,7 +289,7 @@ const getWalletMethodsForChain = async ({
 			const wrappedToolbox = wrapSensitiveMethods(toolbox, (originalMethod) => async (...args: any[]) => {
 				const { password } = await passwordRequest({ title: "BitcoinCash password for " + originalMethod + " required" }) as { password: string };
 				const phrase = await getPhrase(keystore, password);
-				const keys = await toolbox.createKeysForPath({ phrase, derivationPath });
+				const keys = await toolbox.createKeysForPath({ phrase, derivationPath, chain });
 				debugLog("Calling on WrappedToolbox:", originalMethod, toolbox, args);
 
 				return toolbox.transfer({
@@ -218,24 +309,21 @@ const getWalletMethodsForChain = async ({
 		case Chain.Dash:
 		case Chain.Dogecoin:
 		case Chain.Litecoin: {
-			const { getToolboxByChain } = await import("@swapkit/toolbox-utxo");
-
-			toolbox = getToolboxByChain(chain)({
+			toolbox = getToolboxByChainUTXO(chain)({
 				rpcUrl,
 				apiKey: blockchairApiKey,
 				apiClient: api,
 			});
 
-			const keys = toolbox.createKeysForPath({ phrase, derivationPath });
+			const keys = UTXOcreateKeysForPath({ phrase, derivationPath, chain });
 			address = toolbox.getAddressFromKeys(keys);
-
 			// Specify sensitive methods for UTXO chains
-			sensitiveMethods = ['transfer', 'createKeysForPath', 'getAddressFromKeys','getPrivateKeyFromMnemonic'];
+			sensitiveMethods = ['transfer', 'createKeysForPath', 'getAddressFromKeys', 'getPrivateKeyFromMnemonic'];
 
 			const wrappedToolbox = wrapSensitiveMethods(toolbox, (originalMethod) => async (...args: any[]) => {
 				const { password } = await passwordRequest({ title: "UTXO wallet password for " + originalMethod + " required" }) as { password: string };
 				const phrase = await getPhrase(keystore, password);
-				const keys = toolbox.createKeysForPath({ phrase, derivationPath });
+				const keys = UTXOcreateKeysForPath({ phrase, derivationPath, chain });
 				debugLog("Calling on WrappedToolbox:", originalMethod, toolbox, args);
 				return toolbox[originalMethod]({
 					...args[0], from: address, signTransaction: (psbt) => psbt.signAllInputs(keys)
@@ -249,17 +337,34 @@ const getWalletMethodsForChain = async ({
 		case Chain.Kujira:
 		case Chain.Maya:
 		case Chain.THORChain: {
-			const { getToolboxByChain } = await import("@swapkit/toolbox-cosmos");
-			toolbox = getToolboxByChain(chain)({ server: api, stagenet });
-			address = await toolbox.getAddressFromMnemonic(phrase);
+			toolbox = getToolboxByChainCosmos(chain)({ server: api, stagenet });
+
+			const phraseAsUint8Array = new Uint8Array(Buffer.from(phrase, 'hex'));
+
+			const signer = isPK(phrase) ? await toolbox.getSignerFromPrivateKey(phraseAsUint8Array):
+				await toolbox.getSigner(phrase);
+
+//			console.log("Signer", chain, signer);
+
+			//address = signer.address;
+			const accounts = await signer.getAccounts();
+
+			address = accounts[0].address;
 
 			// Specify sensitive methods for Cosmos-based chains
-			sensitiveMethods = ['transfer', 'signMessage', 'deposit', 'getSigner' ]
+			sensitiveMethods = ['transfer', 'signMessage', 'deposit', 'getSigner'];
 			const wrappedToolbox = wrapSensitiveMethods(toolbox, (originalMethod) => async (...args: any[]) => {
 				const { password } = await passwordRequest({ title: "Cosmos wallet password for " + originalMethod + " required" }) as { password: string };
 				const phrase = await getPhrase(keystore, password);
-				const signer = await toolbox.getSigner(phrase);
-				const from = await toolbox.getAddressFromMnemonic(phrase);
+
+				const signer = isPK(phrase)? await toolbox.getSignerFromPrivateKey(phrase):
+					await toolbox.getSigner(phrase);
+
+				const accounts = await signer.getAccounts();
+
+				console.log("Accounts", chain, accounts);
+
+				const from = accounts[0].address;
 
 				args[0] = { ...args[0], from, signer };
 				debugLog("Calling on WrappedToolbox:", originalMethod, args);
@@ -272,11 +377,19 @@ const getWalletMethodsForChain = async ({
 
 		case Chain.Polkadot:
 		case Chain.Chainflip: {
-			const { Network, getToolboxByChain, createKeyring } = await import("@swapkit/toolbox-substrate");
-			
+
+			//if phrase is just one word (private key) then convert to a hex string
+			if (isPK(phrase)) {
+				phrase = Buffer.from(phrase, 'hex').toString('hex');
+			}
+
 			const signer = await createKeyring(phrase, Network[chain].prefix);
-			toolbox = await getToolboxByChain(chain, { signer ,
-				providerUrl: chain === Chain.Polkadot ? RPCUrl.Polkadot : RPCUrl.Chainflip,
+
+			console.log("Substrate Signer", chain, signer);//"wss://api-chainflip.n.dwellir.com/204dd906-d81d-45b4-8bfa-6f5cc7163dbc"
+
+			toolbox = await getToolboxByChainSubstrate(chain, {
+				signer,
+				providerUrl: chain === Chain.Polkadot ? RPCUrl.Polkadot : "wss://api-chainflip.n.dwellir.com/204dd906-d81d-45b4-8bfa-6f5cc7163dbc" as RPCUrl,
 			});
 
 			address = signer.address;
@@ -288,7 +401,7 @@ const getWalletMethodsForChain = async ({
 				const { password } = await passwordRequest({ title: "Polkadot wallet password for '" + originalMethod + "'..." }) as { password: string };
 				const phrase = await getPhrase(keystore, password);
 				const signer = await createKeyring(phrase, Network[chain].prefix);
-				toolbox = await getToolboxByChain(chain, { signer });
+				toolbox = await getToolboxByChainSubstrate(chain, { signer });
 				debugLog("Calling on WrappedToolbox:", originalMethod, toolbox, args);
 
 				return toolbox[originalMethod](...args);
@@ -298,50 +411,42 @@ const getWalletMethodsForChain = async ({
 		}
 
 		case Chain.Radix: {
-			const radixNetwork = otherOptions['radixNetwork'] ? otherOptions['radixNetwork'] : 1;
+			const radixNetwork = networkOptions['radixNetwork'] ? networkOptions['radixNetwork'] : 1;
 
 			const isMainnet = radixNetwork === "mainnet";
 
-			const { getRadixCoreApiClient, RadixToolbox, createPrivateKey, RadixMainnet } = await import("./legacyRadix.ts");
-
 			const getRadixSigner = async (phrase, index, isMainnet) => {
-				if (otherOptions['radixNetwork'] === "legacy") {
-					console.log("Connecting Radix the swapkit legacy way")
+				if (networkOptions['radixNetwork'] === "legacy") {
+					console.log("Connecting Radix the swapkit legacy way");
 					return await createPrivateKey(phrase);
 				}
 
 				console.log("Connecting Radix the new way", index);
 				let seed = mnemonicToSeedSync(phrase);
-				const derivationPath = (isMainnet) ? "m/44'/1022'/1'/525'/1460'/" + index + "'" : "m/44'/1022'/0'/0/" + index + "'";
+				const derivationPath = isMainnet ? "m/44'/1022'/1'/525'/1460'/" + index + "'" : "m/44'/1022'/0'/0/" + index + "'";
 				console.log("DerivationPath", derivationPath);
 
-				if(isMainnet){
-
+				if (isMainnet) {
 					const derivedKeys = deriveEd25519Path(derivationPath, seed.toString('hex'));
 
 					console.log("DerivedKeys", derivedKeys);
 					const privateKey = new PrivateKey.Ed25519(new Uint8Array(derivedKeys.key));
 					return privateKey;
-				}else{
-
+				} else {
 					const hdkey = HDKey.fromMasterSeed(seed);
 					const derivedKey = hdkey.derive(derivationPath);
 					const privateKey = new PrivateKey.Secp256k1(derivedKey.privateKey as Uint8Array);
-					return privateKey
-
+					return privateKey;
 				}
-			}
-
-
-
+			};
 
 			const api = await getRadixCoreApiClient(RPCUrl.Radix, RadixMainnet);
 			const signer = await getRadixSigner(phrase, index, isMainnet);
-			
+
 			toolbox = await wbRadixToolbox({ api, signer });
 			address = toolbox.address;
 			// Specify sensitive methods for Radix
-			sensitiveMethods = ['transfer', 'signMessage', 'validateSignature','createPrivateKey', 'transferToAddress'];
+			sensitiveMethods = ['transfer', 'signMessage', 'validateSignature', 'createPrivateKey', 'transferToAddress'];
 
 			const wrappedToolbox = wrapSensitiveMethods(toolbox, (originalMethod) => async (...args: any[]) => {
 				console.log("WrappedToolbox", originalMethod, args);
@@ -353,57 +458,33 @@ const getWalletMethodsForChain = async ({
 			}, sensitiveMethods);
 
 			return { address, walletMethods: wrappedToolbox };
-		// 	const { RadixEngineToolkit, PrivateKey, NetworkId } = await import(
-		// 		"@radixdlt/radix-engine-toolkit");
-
-
-		// 	const createRadixWallet = async (mnemonic, index = 0) => {
-
-
-		// 		let seed = mnemonicToSeedSync(mnemonic);
-		// 		const derivedKeys = deriveEd25519Path("m/44'/1022'/1'/525'/1460'/" + index + "'", seed)
-		// 		const privateKey = new PrivateKey.Ed25519(new Uint8Array(derivedKeys.key));
-		// 		const virtualAccountAddress = await RadixEngineToolkit.Derive.virtualAccountAddressFromPublicKey(
-		// 			privateKey.publicKey(),
-		// 			NetworkId.Mainnet
-		// 		);
-
-		// 		return {
-		// 			privateKey: privateKey,
-		// 			publicKey: privateKey.publicKeyHex(),
-		// 			address: virtualAccountAddress.toString(),
-		// 		};
-		// 	};
-
-
 		}
 
-
 		case Chain.Solana: {
-			const { SOLToolbox } = await import("./sol-toolbox.ts");
-			toolbox = SOLToolbox({ rpcUrl });
-			const keypair = toolbox.createKeysForPath({ phrase, derivationPath });
+			const keypair = createSolanaKeysForPath({ phrase, derivationPath });
+			toolbox = SOLToolbox({ rpcUrl, fromKeypair: keypair });
 
 			address = toolbox.getAddressFromKeys(keypair);
 
-
-
-
-			
 			// Specify sensitive methods for Solana
-			sensitiveMethods = ['signMessage', 'signAndSendTransaction', 'signTransaction', 'signAllTransactions', 'transfer'];
+			sensitiveMethods = ['signMessage', 'signAndSendTransaction', 'signTransaction', 'signAllTransactions', 'transfer', 'getPublicKey'];
 
 			const wrappedToolbox = wrapSensitiveMethods(toolbox, (originalMethod) => async (...args: any[]) => {
 				const { password } = await passwordRequest({ title: "Enter your Solana wallet password for " + originalMethod + " method" }) as { password: string };
 				const phrase = await getPhrase(keystore, password);
 				const keypair = toolbox.createKeysForPath({ phrase, derivationPath });
 				args[0] = { ...args[0], from: address, signer: keypair, fromKeypair: keypair };
+				if(args[1]){
+					args[1] = { ...args[1], fromKeypair: keypair };
+				}else{
+					args[1] = { fromKeypair: keypair };
+				}
 				debugLog("Calling on WrappedToolbox:", originalMethod, toolbox, args);
 
 				return toolbox[originalMethod](...args);
 			}, sensitiveMethods);
 
-			return { address, walletMethods: wrappedToolbox };
+			return { address, walletMethods: wrappedToolbox, derivationPath };
 		}
 
 		default:
@@ -417,12 +498,16 @@ function connectSecureKeystore({
 	rpcUrls,
 	config: { thorswapApiKey, covalentApiKey, ethplorerApiKey, blockchairApiKey, stagenet },
 }: ConnectWalletParams) {
+	
+
 	return async function connectSecureKeystore(
 		chains: WalletChain[],
 		password: string, // Optional password to skip the user prompt
 		derivationPathMapOrIndex?: { [chain in Chain]?: DerivationPathArray } | number,
 		otherOptions: object = {}
 	) {
+		console.log("connectSecureKeystore", apis, rpcUrls, thorswapApiKey, covalentApiKey, ethplorerApiKey, blockchairApiKey, stagenet);
+
 		if (!encryptedKeystore) {
 			//throw new Error("Keystore is not set. Please set the encrypted keystore before connecting.");
 			//password is phrase
@@ -434,9 +519,11 @@ function connectSecureKeystore({
 
 		setRequestClientConfig({ apiKey: thorswapApiKey });
 
+
+		console.log("Chains", chains);
 		const promises = chains.map(async (chain) => {
 			const dIndex = typeof derivationPathMapOrIndex !== "object" ? derivationPathMapOrIndex : 0;
-			const index = typeof derivationPathMapOrIndex === "number" ? derivationPathMapOrIndex === -1? 0: derivationPathMapOrIndex : 0;
+			const index = typeof derivationPathMapOrIndex === "number" ? derivationPathMapOrIndex === -1 ? 0 : derivationPathMapOrIndex : 0;
 			const derivationPathArray =
 				derivationPathMapOrIndex && typeof derivationPathMapOrIndex === "object"
 					? derivationPathMapOrIndex[chain]
@@ -444,7 +531,7 @@ function connectSecureKeystore({
 
 			const derivationPath = derivationPathArray
 				? derivationPathToString(derivationPathArray)
-				: `${DerivationPath[chain]}/${index}`;
+				: addIndexToDerivationPath(chain, DerivationPath[chain], index);
 
 			// Use provided password or prompt for one if it's not provided
 			let passwordRequestWrapper;
@@ -452,10 +539,9 @@ function connectSecureKeystore({
 			if (!encryptedKeystore) {
 				//return the phase as password
 				passwordRequestWrapper = async () => {
-					return {password};
+					return { password };
 				};
-			}else{
-
+			} else {
 				passwordRequestWrapper = async (options) => {
 					const { password } = options || {};
 					if (password) {
@@ -470,19 +556,29 @@ function connectSecureKeystore({
 			}
 			otherOptions = { ...otherOptions, index: dIndex };
 
-
 			let keystore;
 			if (encryptedKeystore) {
 				keystore = encryptedKeystore;
-			}else{
+			} else {
 				keystore = null;
 			}
-			try{
+			try {
+
+				let api = apis[chain];
+				let rpcUrl = rpcUrls[chain];
+				switch(chain) {
+					case Chain.Kujira:
+						api = "https://kujira-rpc.publicnode.com:443";
+						rpcUrl = "https://kujira-rpc.publicnode.com:443";
+						console.log("Kujira", api, rpcUrl);
+						break;
+				}
+
 				const { address, walletMethods, balance } = await getWalletMethodsForChain({
 					derivationPath,
 					chain,
-					api: apis[chain],
-					rpcUrl: rpcUrls[chain],
+					api,
+					rpcUrl,
 					covalentApiKey,
 					ethplorerApiKey,
 					keystore,
@@ -495,12 +591,13 @@ function connectSecureKeystore({
 
 				addChain({
 					...walletMethods,
+					derivationPath,
 					chain,
 					address,
-					balance: balance? balance : walletMethods.getBalance ? await walletMethods.getBalance(address) : [],
+					balance: balance ? balance : walletMethods.getBalance ? await walletMethods.getBalance(address) : [],
 					// walletType: WalletOption.KEYSTORE,
 				});
-			}catch(e){
+			} catch (e) {
 				console.log("Error", e);
 			}
 		});

@@ -1,5 +1,9 @@
 html,body {
 	background-color: teal;
+	/* background-image: url('../images/xmas.webp'); */
+	background-size: 300px;
+	background-attachment: fixed;
+
 	font-family: "play", fixedsys, consolas, monospace;
 	-webkit-touch-callout: none;
 	-webkit-user-select: none;
@@ -40,14 +44,14 @@ button {
 }
 
 .welcome-dialog>.content{
-	display:block!important;
+	/* display:block!important; */
 	padding:20px;
 }
 .welcome-dialog>.content>.message{
-	margin-left:2vw;
+	margin-left:0x;
 }
 .welcome-dialog>.content>div.icon{
-	margin:20px;
+	margin:15px;
 	float: left;
 }
 
@@ -211,7 +215,22 @@ input{
 	/* Ensure it's above other elements */
 }
 
---wcm-z-index: 1000;
+.matrix-char {
+	color: #ffa500;
+	font-family: monospace;
+	font-size: 18px;
+	white-space: pre;
+	text-shadow: 0 0 2px #ffa500;
+	opacity: 0.8;
+	transition: all 0.2s;
+	padding: 2px;
+}
+
+.glow {
+	color: #ffd700;
+	text-shadow: 0 0 10px #ffd700;
+	opacity: 1;
+}
 
 .dialog-backdrop {
 	position: absolute;
@@ -667,14 +686,19 @@ input{
 
 @media screen and (max-width: 600px) {
 	
-	.dialog-box .icon {
+	/* .dialog-box .icon {
 		display: none;
+	} */
+	.welcome-dialog>.content{
+		display:block!important;
 	}
+
 	.dialog-box .content .message {
 		margin: 0;
 	}
 	
 }
+
 
 .no-icon{
 

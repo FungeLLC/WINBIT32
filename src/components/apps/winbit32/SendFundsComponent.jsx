@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback, useRef } from 'react';
+import React, { useEffect, useCallback, useRef, useMemo } from 'react';
 import { FeeOption, AssetValue } from '@swapkit/sdk';
 import TokenChooserDialog from './TokenChooserDialog';
 import ProgressBar from '../../win/ProgressBar';
@@ -14,13 +14,14 @@ import { formatBalance } from './helpers/transaction';
 import { getAssetValue } from './helpers/quote';
 import { getTxnUrl } from './helpers/transaction';
 import { generateSendReport } from './helpers/report';
+import { Chain } from '@swapkit/helpers'
 
 
 
 
 const SendFundsComponent = ({ providerKey, windowId, onOpenWindow, metadata, hashPath, sendUpHash }) => {
 		var bigInt = require("big-integer");
-		const { skClient, wallets, tokens } = useWindowSKClient(providerKey);
+		const { skClient, wallets, tokens, chainflipBroker } = useWindowSKClient(providerKey);
 		const [recipientAddress, setRecipientAddress] = useIsolatedState(windowId, 'recipientAddress', '');
 		const [amount, setAmount] = useIsolatedState(windowId, 'amount', '');
 		const [selectedToken, setSelectedToken] = useIsolatedState(windowId, 'selectedToken', metadata.selectedToken || null);
@@ -50,6 +51,9 @@ const SendFundsComponent = ({ providerKey, windowId, onOpenWindow, metadata, has
 			setIsTokenDialogOpen(false);
 		}, [setIsTokenDialogOpen, setSelectedToken]);
 
+	const isCFStateFund = useMemo(() => {
+		return recipientAddress.toLowerCase().substring(0, 2) === 'cf';
+	}, [recipientAddress]);
 
 		useEffect(() => {
 			//get balance and set maxamount
@@ -131,8 +135,48 @@ const SendFundsComponent = ({ providerKey, windowId, onOpenWindow, metadata, has
 			if(sendingWallet.chain === 'XRD'){
 				fn = sendingWallet.transferToAddress;
 			}
+			if(isCFStateFund && selectedToken.identifier === 'ETH.FLIP-0x826180541412D574cf1336d22c0C0a287822678A'){
 
-			if(recipientAddress.toLowerCase() === 'deposit'){
+				//get chainflip wallet
+				if (!chainflipBroker){
+					setError('No chainflip broker available');
+					return;
+				}
+
+				// evmToolbox,
+				// 	stateChainAccount,
+				// 	assetValue,
+
+				const evmToolbox = wallets.find(wallet => wallet.chain === 'ETH');
+				const chainflipWallet = wallets.find(wallet => wallet.chain === 'FLIP');
+				const cfb = await chainflipBroker(chainflipWallet);
+
+				if (!evmToolbox || !chainflipWallet || !cfb || !cfb.broker) {
+					setError('No EVM Toolbox or Chainflip Wallet available');
+					return;
+				}
+
+				console.log('EVM Toolbox:', evmToolbox, 'Chainflip Wallet:', chainflipWallet, 'chainflipBroker:', cfb);
+
+
+
+				const res = await cfb.broker.fundStateChainAccount({
+					evmToolbox,
+					stateChainAccount: recipientAddress,
+					assetValue,
+					}
+				);
+
+				console.log('Fund State Chain Account:', res);
+				setProgress(87);
+				const explorerUrl = getTxnUrl(res, selectedToken.chain, skClient);
+				console.log('Explorer URL:', explorerUrl);
+				setTxUrl(explorerUrl);
+				setProgress(100);
+				return;
+
+
+			}else if(recipientAddress.toLowerCase() === 'deposit'){
 				fn = sendingWallet.deposit;
 				txData = {
 					assetValue: assetValue,
@@ -143,15 +187,16 @@ const SendFundsComponent = ({ providerKey, windowId, onOpenWindow, metadata, has
 
 			}else{
 				txData = {
-				assetValue: assetValue,
-				from: sendingWallet.address,
-				feeOptionKey: FeeOption.Average,
-				memo,
-				recipient: recipientAddress,
+					assetValue: assetValue,
+					from: sendingWallet.address,
+					feeOptionKey: FeeOption.Average,
+					memo,
+					recipient: recipientAddress,
+					setStatusTextMessage: setError,
 				};
 
 				if(sendingWallet.chain === 'SOL'){
-					txData.isPDA = true;
+					txData.isProgramDerivedAddress = true;
 				}
 
 			}
@@ -377,6 +422,7 @@ memo=${memo}
 
 
 
+
 		return (
 			<>
 				<div className="swap-toolbar">
@@ -431,7 +477,7 @@ memo=${memo}
 						<div className="field-group token-select-group">
 							<div className='token-select'>
 
-								<button onClick={() => !sendInProgress && openTokenDialog()} className='select-button' style={{ minWidth: '130px', minHeight: '75px' }}>
+								<button onClick={() => { setSendInProgress(false); openTokenDialog();}} className='select-button' style={{ minWidth: '130px', minHeight: '75px' }}>
 									{selectedToken ? (
 										<span className='token'>
 											<img src={selectedToken.logoURI} alt={selectedToken.name} style={{ width: '20px', height: '20px', 'marginRight': '5px', marginLeft: '5px' }} />
@@ -477,10 +523,12 @@ memo=${memo}
 								''
 							)}
 						</div>
+					{ recipientAddress !== 'fund_state_chain' && recipientAddress !== 'deposit' &&
 					<div className="field-group" title="Use 'deposit' to deposit to protocol (Thor/Maya)">
 						<label>Recipient Address</label>
 						<input type="text" value={recipientAddress} onChange={e => setRecipientAddress(e.target.value)} />
 					</div>
+					}
 					{(selectedToken?.chain === 'THOR' || selectedToken?.chain === 'MAYA' || selectedToken?.chain === 'XRD')
 						&& (
 						<div className="field-group">
@@ -488,6 +536,26 @@ memo=${memo}
 							<input type="text" value={memo} onChange={e => setMemo(e.target.value)} />
 						</div>
 					)}
+					{ (selectedToken && selectedToken.identifier === 'ETH.FLIP-0x826180541412D574cf1336d22c0C0a287822678A') &&
+
+						<div className="field-group">
+							<label>
+									<input type="checkbox" value={(isCFStateFund)}
+									onChange={e => setRecipientAddress(e.target.checked ? wallets.find(w => w.chain === 'FLIP').address : '')} 
+									checked={isCFStateFund}
+									/>
+								Fund State Chain Account</label>
+						</div>
+					}
+					{ (selectedToken && (selectedToken.identifier === 'MAYA.CACAO' || selectedToken.identifier === 'THOR.RUNE')) &&
+						<div className="field-group">	
+							<label>
+								<input type="checkbox" value={(recipientAddress === 'deposit')}
+								checked={recipientAddress === 'deposit'}
+								onChange={e => setRecipientAddress(e.target.checked ? 'deposit' : '')} />
+								Deposit to Protocol</label>
+						</div>
+					}
 				</div>
 					{showSwapini === false &&
 						<button onClick={() => setShowSwapini(true)} style={{ padding: '8px' }}>Advanced...</button>
