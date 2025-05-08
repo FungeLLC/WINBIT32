@@ -136,15 +136,15 @@ export const getPrograms = () => {
 					invisibleToHash: true,
 					unCloseable: true,
 					programs: [
-						{
-							progID: 8,
-							title: "Rare Sats",
-							icon: "💎", // Example ico
-							progName: "raresats.exe",
-							component: RareSats,
-							initialPosition: { x: 1, y: 1, width: 425, height: 485 },
-							maximised: true,
-						},
+						// {
+						// 	progID: 8,
+						// 	title: "Rare Sats",
+						// 	icon: "💎", // Example ico
+						// 	progName: "raresats.exe",
+						// 	component: RareSats,
+						// 	initialPosition: { x: 1, y: 1, width: 425, height: 485 },
+						// 	maximised: true,
+						// },
 
 						{
 							progID: 6,
