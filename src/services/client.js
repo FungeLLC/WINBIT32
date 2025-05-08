@@ -61,8 +61,8 @@ export const createSwapKitClient = async (key, api) => {
 				...phantomWallet,
 			},
 			rpcUrls: {
-				Chainflip: "wss://api-chainflip.n.dwellir.com/204dd906-d81d-45b4-8bfa-6f5cc7163dbc",
-				FLIP: "wss://api-chainflip.n.dwellir.com/204dd906-d81d-45b4-8bfa-6f5cc7163dbc",
+				Chainflip: "wss://mainnet-archive.chainflip.io",
+				FLIP: "wss://mainnet-archive.chainflip.io",
 				Ethereum: "https://mainnet.infura.io/v3/c3b4e673639742a89bbddcb49895d568",
 				ETH: "https://api-ethereum-mainnet.n.dwellir.com/204dd906-d81d-45b4-8bfa-6f5cc7163dbc",
 				AVAX: "https://avalanche-mainnet.infura.io/v3/c3b4e673639742a89bbddcb49895d568",
